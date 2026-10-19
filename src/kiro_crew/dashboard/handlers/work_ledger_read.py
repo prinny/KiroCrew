@@ -292,7 +292,6 @@ def _published_payload(
             "round": record.round,
             "depth": record.depth,
             "goal_items_used": record.goal_items_used,
-            "cap_exceeded": record.cap_exceeded,
             "goal": session_control.published_goal(record.goal),
         }
     return {
