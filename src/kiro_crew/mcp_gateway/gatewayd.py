@@ -232,6 +232,7 @@ from kiro_crew.mcp_gateway.daemon.launch import (  # noqa: F401
     TargetResolver,
     _approval_env_identity,
     _await_owner_port,
+    _backend_work_dir,
     _binds_from_environment,
     _call_with_approval_snapshot,
     _coherent_env_sidecars,
@@ -1409,6 +1410,9 @@ async def _acquire_backend(
         # and stats the filesystem, and a cold spawn must not stall gateway
         # traffic or heartbeats.
         denial: list[str] = []
+        # The env the verdict judged, kept for a re-judge after the queue: the
+        # Python keys added below would make the classifier deny its own token.
+        judged_env = dict(spawn_env)
         control_plane = await asyncio.to_thread(
             _spawns_own_control_plane,
             pool_key.server_name,
@@ -1454,6 +1458,23 @@ async def _acquire_backend(
         )
         if fresh_target is None or fresh_target[:2] != (command, args):
             raise _TargetUnknown(f"target approval changed for server {pool_key.server_name!r}")
+        # The cwd is the freshly resolved one, so a workspace that moved while
+        # this spawn queued starts the backend in the new directory. The
+        # control-plane verdict above judged the old cwd, so a move re-judges it
+        # for the new one, and the token rides only when both verdicts allow it.
+        spawn_work_dir = fresh_target[3]
+        if control_plane and spawn_work_dir != work_dir:
+            moved_denial: list[str] = []
+            control_plane = await asyncio.to_thread(
+                _spawns_own_control_plane,
+                pool_key.server_name,
+                command,
+                list(args),
+                env=judged_env,
+                work_dir=spawn_work_dir,
+                denial=moved_denial,
+            )
+            denial = moved_denial
         # The ssh-agent socket decision is re-judged here too: a grant withdrawn, or
         # a path refused, while this spawn queued must not reach the child. A
         # socket that became available meanwhile is left out, as first decided.
@@ -1467,7 +1488,7 @@ async def _acquire_backend(
             command=command,
             args=list(args),
             env=spawn_env,
-            work_dir=work_dir,
+            work_dir=spawn_work_dir,
             # Containment yields only to temp keys cleared by the shared rule.
             # ``spawn_backend`` checks them again after secret resolution, so a
             # path hidden behind ``secret://`` cannot bypass the runtime check.
