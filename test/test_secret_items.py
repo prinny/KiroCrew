@@ -141,7 +141,7 @@ def test_updating_a_login_keeps_the_fields_the_request_leaves_out(tmp_path: Path
         "password": "pw-1",
         "notes": "n",
     }
-    # Sent as "", a field is cleared.
+    # Sent as "", notes are cleared.
     asyncio.run(vault.set_item_with_revision("GITHUB", "login", {**edit, "notes": ""}))
     stored = vault.get_items_many(["GITHUB"])["GITHUB"]
     assert stored is not None

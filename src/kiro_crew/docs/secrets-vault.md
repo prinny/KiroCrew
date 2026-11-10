@@ -22,7 +22,19 @@ the operating system: another program running as you can still open the files.
 
 Use **Settings → Secrets** in the dashboard. The panel lists the names it holds,
 adds a new entry, and deletes one. It never shows a stored value back to you —
-listing returns names only, so a screenshot of the panel leaks nothing.
+listing returns names, plus a login's username and sites, and never a password,
+note or secret value, so a screenshot of the panel shows no credential.
+
+With **Secrets vault redesign** turned on in **Settings → Developer → Feature
+Previews**, the tab changes shape. The left list holds every entry the vault
+knows, grouped into the credentials Kiro Crew uses by name and your
+own; picking one opens it on the right. **Add secret** asks what you are
+storing first: a **Secret** (one value, an API key or token), a **Login** (a
+website sign-in: username, password, the sites it belongs to) or a **Note**. The pane shows the `secret://` references
+to paste, and lets you replace or delete the entry. It never shows a stored
+value back to you: a login lists its username and websites, nothing else, so a
+screenshot of the panel leaks nothing. On a phone the list is the page and a
+row opens its pane.
 
 If a value fails to save, the form keeps what you typed rather than clearing it,
 so you do not have to fetch the credential again.

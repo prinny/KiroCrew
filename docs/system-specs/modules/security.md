@@ -1223,7 +1223,9 @@ the store lock and writes a `secret` item as exactly the entry
 `set_with_revision` writes. Updating an item of the same type, a field a
 listing never shows (`items.KEPT_WHEN_ABSENT`: a login's `password`,
 `notes`; a note's `text`) that the request leaves out keeps its stored value,
-read and rewritten under that one lock; sent as `""` it is cleared. That is
+read and rewritten under that one lock; `notes` sent as `""` is cleared, while
+`password` and `text` are required, so `""` for either is refused
+(`missing_field`). That is
 what lets the edit form, which cannot show those fields, save without erasing
 them. A listing decrypts each typed item for its public fields
 (`get_items_readable`); one whose own ciphertext fails to decrypt is listed

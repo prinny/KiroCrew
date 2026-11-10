@@ -364,10 +364,10 @@ def _sanitize_for_log(value: str) -> str:
 def _list_items(vault: SecretVault) -> list[dict[str, object]]:
     """Every stored item with its type, revision and public fields, sorted by name.
 
-    A ``login`` carries its username, URLs and whether it has a one-time
-    password (:func:`items.public_view`); those sit inside the ciphertext, so
-    the typed entries are decrypted here, on the gateway, for the owner. No
-    password, seed, note text or secret value is ever in the response.
+    A ``login`` carries its username and URLs (:func:`items.public_view`);
+    those sit inside the ciphertext, so the typed entries are decrypted here,
+    on the gateway, for the owner. No password, notes, note text or secret
+    value is ever in the response.
     Blocking file IO: call via ``asyncio.to_thread``.
     """
     rows = sorted(vault.list_items(), key=lambda row: row["name"])
