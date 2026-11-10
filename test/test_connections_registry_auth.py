@@ -392,7 +392,7 @@ def test_shipped_preregistered_providers_refuse_dcr_in_their_l0_baseline():
 
 def test_shipped_preregistered_providers_carry_the_operator_instruction():
     for provider in get_preregistered_providers():
-        assert "Settings → OAuth Apps" in provider["prerequisite_copy"], provider["slug"]
+        assert "Settings → Connections" in provider["prerequisite_copy"], provider["slug"]
 
 
 def test_every_shipped_registration_guide_exists_on_disk():
