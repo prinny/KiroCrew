@@ -27,6 +27,7 @@ from source_link_rows import append_created, gh_create_meta
 from kiro_crew import work_ledger as wl
 from kiro_crew.dashboard.source_providers import ownership
 from kiro_crew.dashboard.state import _ChatSlot
+from kiro_crew.testing.wait import async_wait_until, await_until
 
 _isolated_home = work_ledger_helpers._isolated_home
 
@@ -292,6 +293,44 @@ class TestLedgerAndRollUp:
         assert conductor.dismiss_source_link(chip["identity"]) is True
         assert _urls(conductor) == []
 
+    def test_an_unlink_on_the_workers_card_leaves_the_conductors_chip(self, tmp_path):
+        state = _make_state(tmp_path / "sessions")
+        conductor = state.get_or_create_slot("chat-1")
+        _dispatch("chat-1", "chat-2")
+        worker = state.get_or_create_slot("chat-2")
+        append_created(worker, NEW)
+        assert _urls(conductor) == [NEW]
+        (chip,) = worker._pr_source_links()
+        assert worker.dismiss_source_link(chip["identity"]) is True
+        assert _urls(worker) == []
+        assert _urls(conductor) == [NEW]
+
+    def test_an_unlink_on_the_conductors_card_hides_a_rolled_up_create(self, tmp_path):
+        state = _make_state(tmp_path / "sessions")
+        conductor = state.get_or_create_slot("chat-1")
+        _dispatch("chat-1", "chat-2")
+        worker = state.get_or_create_slot("chat-2")
+        append_created(worker, NEW)
+        (chip,) = conductor._pr_source_links()
+        assert conductor.dismiss_source_link(chip["identity"]) is True
+        assert _urls(conductor) == []
+        assert _urls(worker) == [NEW]
+
+    def test_a_hidden_link_does_not_take_a_visible_ones_place(self):
+        from kiro_crew.dashboard.slot_projection import SlotProjection
+
+        slot = _ChatSlot("s1")
+        for number in (1, 2, 3):
+            append_created(slot, f"https://github.com/acme/widgets/pull/{number}")
+        newest = slot._pr_source_links()[0]
+        assert slot.dismiss_source_link(newest["identity"]) is True
+        links = SlotProjection.source_links(slot, max_links=2, non_durable_roles=frozenset())
+        assert [link["number"] for link in links] == [2, 1]
+        every = SlotProjection.source_links(
+            slot, max_links=2, non_durable_roles=frozenset(), keep_dismissed=True
+        )
+        assert [link["number"] for link in every] == [3, 2, 1]
+
     def test_a_new_report_shows_without_a_transcript_change(self, tmp_path):
         state = _make_state(tmp_path / "sessions")
         conductor = state.get_or_create_slot("chat-1")
@@ -303,12 +342,36 @@ class TestLedgerAndRollUp:
 
 class TestGhInvocations:
     def test_operators_wrappers_and_heredocs(self):
-        found = ownership.gh_invocations(
-            "cd /x && GH_PAGER= timeout 60 gh pr create --fill | tee o; "
-            "echo gh pr merge 1\nenv -i /usr/bin/gh pr comment 2 -b hi\n"
-            "cat <<'EOF' > f\ngh pr close 3\nEOF"
-        )
+        found = [
+            call.argv
+            for call in ownership._gh_calls(
+                "cd /x && GH_PAGER= timeout 60 gh pr create --fill | tee o; "
+                "echo gh pr merge 1\nenv -i /usr/bin/gh pr comment 2 -b hi\n"
+                "cat <<'EOF' > f\ngh pr close 3\nEOF"
+            )
+        ]
         assert found == [["pr", "create", "--fill"], ["pr", "comment", "2", "-b", "hi"]]
+
+    def test_quoting_redirections_and_line_continuations(self):
+        found = [
+            call.argv
+            for call in ownership._gh_calls(
+                'gh pr comment 5 -R o/r -b "it\'s \\"ok\\"" 2>&1 \\\n  --edit-last'
+            )
+        ]
+        assert found == [["pr", "comment", "5", "-R", "o/r", "-b", 'it\'s "ok"', "--edit-last"]]
+
+    def test_a_large_command_with_no_gh_write_never_reaches_the_shell_reader(self):
+        command = "echo " + "word " * 14_000 + "&& gh pr view 3"
+        assert len(command) > 64 * 1024
+        msg = {
+            "role": "tool",
+            "meta": {"input": json.dumps({"command": command}), "kind": "execute"},
+        }
+        msg["meta"]["output"] = _ok("")
+        before = ownership._gh_calls.cache_info()
+        assert ownership.owned_refs_in_tool_row(msg, *_parsers()) == []
+        assert ownership._gh_calls.cache_info() == before
 
     def test_meta_created_by_the_suite_helper_parses(self):
         meta = gh_create_meta(PR)
@@ -426,11 +489,12 @@ class TestAdversarialInputs:
         state = _make_state(tmp_path / "sessions")
         conductor = state.get_or_create_slot("chat-1")
         item = _dispatch("chat-1", "chat-2")
-        stamps = iter(["2026-11-10T10:00:00+00:00", "2026-11-10T12:00:00+00:00"])
-        monkeypatch.setattr("kiro_crew.work_ledger_writes._now_iso", lambda: next(stamps))
+        now = ["2026-11-10T10:00:00+00:00"]
+        monkeypatch.setattr(wl, "_now_iso", lambda: now[0])
         wl.apply_worker_report("chat-1", item, status="progress", summary="s", pr=21991)
         assert _urls(conductor) == [OLD]
         append_created(conductor, NEW, ts="2026-11-10T11:00:00+00:00")
+        now[0] = "2026-11-10T12:00:00+00:00"
         wl.apply_worker_report("chat-1", item, status="progress", summary="later")
         assert _urls(conductor) == [NEW, OLD]
 
@@ -513,7 +577,7 @@ class TestReviewFindings:
         monkeypatch.setattr(ownership, "_ledger_refresh_hook", [pushed.set])
 
         assert _urls(conductor) == []  # nothing read yet, and nothing read here
-        await asyncio.wait_for(pushed.wait(), 10)
+        await await_until(pushed)
         assert reads and loop_thread not in reads
         conductor.invalidate_source_links()
         assert _urls(conductor) == [NEW]
@@ -719,18 +783,41 @@ class TestReviewFindingsRoundFiveOpus:
             ownership, "_ledger_refresh_hook", [lambda: (pushes.append(1), landed.set())]
         )
         ownership.ledger_links("chat-1", *_parsers())
-        await asyncio.wait_for(landed.wait(), 10)
+        await await_until(landed)
         assert pushes == [1]
         # The cache lets the answer go; the next read lands the same answer.
         ownership._ledger_cache.clear()
         ownership.ledger_links("chat-1", *_parsers())
-        while ownership._ledger_inflight:
-            await asyncio.sleep(0.01)
-        await asyncio.sleep(0.05)
+        # ``landed`` clears the in-flight key and runs the push hooks in one loop
+        # callback, so once the key is gone any push has already happened.
+        await async_wait_until(lambda: not ownership._ledger_inflight)
         assert pushes == [1]
 
 
 class TestReviewFindingsRoundSix:
+    def test_a_report_keeps_its_pr_when_an_artifact_in_another_repo_shares_the_number(
+        self, tmp_path
+    ):
+        state = _make_state(tmp_path / "sessions")
+        conductor = state.get_or_create_slot("chat-1")
+        item = _dispatch("chat-1", "chat-2", repo="acme/widgets")
+        other = "https://github.com/other/lib/pull/42"
+        wl.apply_worker_report(
+            "chat-1", item, status="progress", summary="s", pr=42, artifacts={"dep": other}
+        )
+        assert set(_urls(conductor)) == {"https://github.com/acme/widgets/pull/42", other}
+
+    @pytest.mark.parametrize("method", ["HEAD", "OPTIONS"])
+    def test_a_reading_api_method_is_not_acted_on(self, method):
+        slot = _ChatSlot("s1")
+        _tool(slot, f"gh api -X {method} repos/acme/widgets/pulls/42", _ok(""))
+        assert _urls(slot) == []
+
+    def test_an_attached_short_field_makes_the_api_call_a_write(self):
+        slot = _ChatSlot("s1")
+        _tool(slot, "gh api repos/acme/widgets/pulls/42/reviews -fevent=APPROVE --silent", _ok(""))
+        assert _urls(slot) == ["https://github.com/acme/widgets/pull/42"]
+
     def test_a_url_another_gh_call_names_is_not_the_creates(self):
         slot = _ChatSlot("s1")
         _tool(
@@ -753,10 +840,10 @@ class TestReviewFindingsRoundSix:
         )
         assert _urls(slot) == [PR]
 
-    def test_many_gh_calls_over_a_large_output_stay_cheap(self):
-        import time
-
-        calls = " ; ".join(f"gh pr comment {n} -b x" for n in range(100))
+    def test_many_gh_calls_over_a_large_output_read_its_tail_once(self):
+        # Every call is masked (``;``), so each asks what gh printed: the row
+        # still reads its bounded output tail once, not once per call.
+        calls = " ; ".join(f"gh pr comment {n} -R acme/widgets -b x" for n in range(100))
         command = calls + "\n" * 2000
         output = "x" * 1_000_000
         msg = {
@@ -767,6 +854,15 @@ class TestReviewFindingsRoundSix:
                 "output": _ok(output),
             },
         }
-        started = time.perf_counter()
-        ownership.owned_refs_in_tool_row(msg, *_parsers())
-        assert time.perf_counter() - started < 1.0
+        parse, candidates = _parsers()
+        scanned: list[int] = []
+
+        def counting(text: str):
+            scanned.append(len(text))
+            return candidates(text)
+
+        owned = ownership.owned_refs_in_tool_row(msg, parse, counting)
+        # Only the last call is not masked by a ``;`` after it.
+        assert [(r.ref.number, r.relation) for r in owned] == [(99, "acted")]
+        assert len(ownership._gh_calls(command)) == 100
+        assert scanned == [ownership.OUTPUT_SCAN_CHARS]

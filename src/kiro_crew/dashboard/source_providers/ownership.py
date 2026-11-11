@@ -21,6 +21,7 @@ own links, its own report, and its workers' links) lives in
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import re
@@ -70,14 +71,6 @@ _WRAPPERS = frozenset({"env", "command", "exec", "time", "nohup", "timeout", "ni
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _WRAPPER_ARG = re.compile(r"^(-.*|\d+(\.\d+)?[smhd]?)$")
 _EXIT_TRAILER = re.compile(r"Exit Code: (-?\d+)\s*\Z")
-_PUNCTUATION = "();<>|&\n"
-#: One shell word (unquoted runs and quoted strings glued together), a run of
-#: operators, or a stray character such as an unclosed quote.
-_SHELL_TOKEN = re.compile(
-    r"""(?:[^ \t\r\n'"();<>|&\\]+|\\.|'[^']*'|"(?:\\.|[^"\\])*")+|[();<>|&\n]+|\S""",
-    re.DOTALL,
-)
-_QUOTED_PART = re.compile(r"""'([^']*)'|"((?:\\.|[^"\\])*)"|\\(.)""", re.DOTALL)
 #: ``pull request owner/repo#123`` as gh prints it after close, merge, ready and
 #: review. Anchored on gh's own words so a ``#N`` in the PR's title cannot win.
 _GH_SAID_PULL = re.compile(
@@ -86,8 +79,6 @@ _GH_SAID_PULL = re.compile(
 #: ``owner/repo#123`` written in a report's artifacts.
 _OWNER_REPO_NUMBER = re.compile(r"^([A-Za-z0-9][\w.-]*)/([\w.-]+)#([0-9]{1,12})$")
 _API_PULL = re.compile(r"^repos/([^/?#{}]+)/([^/?#{}]+)/pulls/([0-9]{1,12})(?:[/?#]|$)")
-#: A heredoc start: ``<<EOF``, ``<<-'EOF'``, ``<< "EOF"``.
-_HEREDOC = re.compile(r"""(?<!<)<<(?!<)-?[ \t]*(['"]?)([A-Za-z_][\w.-]*)\1""")
 #: gh's own refusal to create a second pull request for one branch.
 _GH_ALREADY_EXISTS = re.compile(r"a pull request for branch\b.*\balready exists", re.IGNORECASE)
 #: Every gh call that can own a link, as it appears in a row's raw input. The
@@ -99,8 +90,10 @@ _GH_WRITE_HINT = re.compile(
 )
 #: Output URL candidates read per tool row, so one huge output costs a bounded parse.
 MAX_OUTPUT_CANDIDATES = 16
-#: Shell words lexed per command; a gh call past them (deep in a long script) is missed.
-MAX_COMMAND_TOKENS = 2048
+#: Command text read per row. The shell reader costs about 2 us a character
+#: (heredoc bodies far less), so this bounds one read at about 70 ms.
+#: shortcut: a gh call past it (deep in a long script) is missed; raise it if one is.
+MAX_COMMAND_CHARS = 32768
 #: The end of a tool row's output that is read; gh prints what counts last.
 OUTPUT_SCAN_CHARS = 16384
 
@@ -214,42 +207,13 @@ def tool_row_succeeded(meta: dict, output: str) -> bool:
     return meta.get("kind") in (None, "", "execute")
 
 
-def _unquote(word: str) -> str:
-    """*word* with its shell quoting removed, the way the shell would pass it on."""
-    if "'" not in word and '"' not in word and "\\" not in word:
-        return word
-
-    def piece(match: re.Match[str]) -> str:
-        if match.group(1) is not None:
-            return match.group(1)
-        if match.group(2) is not None:
-            return re.sub(r"\\(.)", r"\1", match.group(2), flags=re.DOTALL)
-        return match.group(3)
-
-    return _QUOTED_PART.sub(piece, word)
-
-
-def _without_heredoc_bodies(command: str) -> str:
-    """*command* with every heredoc's body lines removed, so they never read as commands.
-
-    The line that opens a heredoc stays, and so does every line after its closing
-    delimiter: ``cat > body.md <<'EOF' ... EOF`` followed by ``gh pr create`` keeps
-    the gh call.
-    """
-    if "<<" not in command:
-        return command
-    kept: list[str] = []
-    pending: list[tuple[str, bool]] = []
-    for line in command.split("\n"):
-        if pending:
-            delimiter, strip_tabs = pending[0]
-            if (line.lstrip("\t") if strip_tabs else line).rstrip() == delimiter:
-                pending.pop(0)
-            continue
-        kept.append(line)
-        for match in _HEREDOC.finditer(line):
-            pending.append((match.group(2), match.group(0).startswith("<<-")))
-    return "\n".join(kept)
+def _word_text(word: Any) -> str:
+    """*word* as the shell passes it on: its live quotes removed, escapes resolved."""
+    return "".join(
+        step.char
+        for step in word.steps
+        if not (step.text in ("'", '"') and (step.active or step.state == 0))
+    )
 
 
 class _GhCall(NamedTuple):
@@ -264,53 +228,26 @@ class _GhCall(NamedTuple):
     decisive: bool
 
 
-def _gh_calls(command: str) -> list[_GhCall]:
+@functools.lru_cache(maxsize=512)
+def _gh_calls(command: str) -> tuple[_GhCall, ...]:
     """Every simple command in *command* that runs gh.
 
-    A command is split at shell operators and newlines, so ``cd x && gh pr edit``
-    finds the gh call; heredoc bodies are removed first, and a redirection
-    (``> out``, ``2>&1``) stays part of its command. The split is a regular
-    expression rather than ``shlex``: this runs on every gh row of a transcript on
-    the event loop, and ``shlex`` costs about ten times as much.
+    Read with the shared shell reader (``security.shell_commands.read_commands``),
+    so ``cd x && gh pr edit`` finds the gh call, a heredoc body is never a command,
+    and a redirection (``> out``, ``2>&1``) is stepped over. Cached by text: a row's
+    command stays the same while its output streams in. Callers must not change
+    the argv lists.
     """
-    text = _without_heredoc_bodies(command)
-    tokens = islice(_SHELL_TOKEN.finditer(text), MAX_COMMAND_TOKENS)
-    segments: list[list[str]] = [[]]
+    from kiro_crew.security import shell_commands, shell_normalizer
+
+    text = command[:MAX_COMMAND_CHARS]
+    if "\\\n" in text:
+        text = shell_normalizer._fold_line_continuations(text)
+    commands = shell_commands.read_commands(text, heredocs=True)
+    segments = [[_word_text(word) for word in cmd.argv] for cmd in commands]
     #: The operator that ends each segment ("" for the last).
-    operators: list[str] = []
-    previous_end, previous_was_word, redirect_target = -1, False, False
-    grouped = False
-    for match in tokens:
-        token = match.group(0)
-        if token == "\\\n":
-            # A line continuation joins two lines of one command.
-            continue
-        if all(ch in _PUNCTUATION for ch in token):
-            if (token[0] in "<>" or token.startswith("&>")) and "\n" not in token:
-                # A redirection belongs to its command, and so does its target.
-                # ``2>&1``: the descriptor number glued to it is not an argument.
-                if (
-                    previous_was_word
-                    and previous_end == match.start()
-                    and segments[-1]
-                    and segments[-1][-1].isdigit()
-                ):
-                    segments[-1].pop()
-                redirect_target = True
-            else:
-                grouped = grouped or "(" in token or ")" in token
-                operators.append(token.strip(" ") or "\n")
-                segments.append([])
-                redirect_target = False
-            previous_was_word = False
-        else:
-            if redirect_target:
-                redirect_target = False
-            else:
-                segments[-1].append(_unquote(token))
-            previous_was_word = True
-        previous_end = match.end()
-    operators.append("")
+    operators = [cmd.separator for cmd in commands]
+    grouped = any(operator in ("(", ")", "`") for operator in operators)
     # ``only_and_after[i]``: every operator that joins segment i to a later
     # non-empty segment is ``&&`` (a trailing newline or ``;`` runs nothing).
     # One backward pass, so a long command costs linear time.
@@ -338,12 +275,7 @@ def _gh_calls(command: str) -> list[_GhCall]:
             before = operators[position - 1] if position else ""
             decisive = not grouped and only_and_after[position] and "||" not in before
             found.append(_GhCall(host, words[index + 1 :], decisive))
-    return found
-
-
-def gh_invocations(command: str) -> list[list[str]]:
-    """The argv after ``gh`` of every simple command in *command* that runs gh."""
-    return [call.argv for call in _gh_calls(command)]
+    return tuple(found)
 
 
 def _flag_value(args: list[str], names: frozenset[str]) -> str | None:
@@ -397,7 +329,7 @@ def _repo_url(
     """``https://<host>/<owner>/<repo>/<segment>/<n>`` from a ``-R`` value."""
     if not repo:
         return None
-    parts = [part for part in re.sub(r"^https?://", "", repo).strip("/").split("/") if part]
+    parts = re.findall(r"[^/]+", re.sub(r"^https?://", "", repo))
     if len(parts) == 2:
         host = _default_host(host_hint)
         if host is None:
@@ -503,10 +435,14 @@ def _api_ref(args: list[str], parse: Parse, host_hint: str | None = None) -> Sou
     method = (_flag_value(args, frozenset({"-X", "--method"})) or "").upper()
     if not method:
         has_body = any(
-            arg in _API_BODY_FLAGS or arg.split("=", 1)[0] in _API_BODY_FLAGS for arg in args
+            arg in _API_BODY_FLAGS or arg.split("=", 1)[0] in _API_BODY_FLAGS
+            # ``-fevent=APPROVE``: a short field flag with its operand attached.
+            or (arg[:2] in ("-f", "-F") and len(arg) > 2)
+            for arg in args
         )
         method = "POST" if has_body else "GET"
-    if method == "GET":
+    # Only a method that changes something owns the PR: GET and HEAD read it.
+    if method not in ("POST", "PUT", "PATCH", "DELETE"):
         return None
     positional = _positionals(args, _API_VALUE_FLAGS)
     if not positional:
@@ -608,7 +544,8 @@ def _owned_refs(
     # gh prints what this needs at the end (the new URL, ``pull request o/r#N``),
     # and the output can be up to a megabyte, so only its tail is read.
     output = output[-OUTPUT_SCAN_CHARS:]
-    hosted = _gh_calls(command)
+    # Sliced before the cached call, so each kept cache key is at most this long.
+    hosted = _gh_calls(command[:MAX_COMMAND_CHARS])
     calls = [call.argv for call in hosted]
     owned: list[OwnedRef] = []
     printed_by_host: dict[str | None, list[SourceRef]] = {}
@@ -767,18 +704,23 @@ def _item_links(
                 urls.append(ref.url)
                 numbers.add(ref.number)
     pr = getattr(item, "pr", None)
-    if not isinstance(pr, int) or pr <= 0 or pr in numbers:
+    if not isinstance(pr, int) or pr <= 0:
         return urls, None
     acceptance = getattr(item, "acceptance", None)
     repo = acceptance.get("repo") if isinstance(acceptance, dict) else None
     url = _repo_url(repo if isinstance(repo, str) else None, pr)
     if url is not None:
         try:
-            urls.append(parse(url).url)
-            return urls, None
+            reported = parse(url).url
         except ValueError:
             pass
-    return urls, pr
+        else:
+            # Compared by URL: an artifact in another repository can share the number.
+            if reported not in urls:
+                urls.append(reported)
+            return urls, None
+    # No repository: a number an artifact URL already names is that URL.
+    return urls, None if pr in numbers else pr
 
 
 def _reported_at(home: str, item: Any, link: str) -> float:
@@ -798,7 +740,7 @@ def _read_ledger_links(
     """Read *key*'s ledger links. BLOCKING: a binding stat, one item read, and a
     listing of the board the chat conducts (absent for most chats)."""
     from kiro_crew import work_ledger
-    from kiro_crew.session_ledger import ledger_key
+    from kiro_crew.session_ledger_layout import ledger_key
 
     links: list[tuple[str, float]] = []
     numbers: list[tuple[int, float]] = []
@@ -888,7 +830,7 @@ def ledger_links(
     differs. Off the loop (a worker thread, a test) the read runs inline.
     """
     from kiro_crew.config.paths import data_home
-    from kiro_crew.session_ledger import ledger_key
+    from kiro_crew.session_ledger_layout import ledger_key
 
     key = ledger_key(slot_key)
     if not key:
@@ -967,7 +909,7 @@ def set_ledger_refresh_hook(hook: Callable[[], None]) -> None:
 
 
 def reset_ledger_cache() -> None:
-    """Forget every kept ledger answer (tests, and a data-home switch)."""
+    """Forget every kept ledger answer (tests)."""
     with _ledger_lock:
         _ledger_cache.clear()
         _ledger_inflight.clear()

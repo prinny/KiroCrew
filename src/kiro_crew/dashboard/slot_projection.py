@@ -173,6 +173,7 @@ class SlotProjection:
         *,
         max_links: int,
         non_durable_roles: frozenset[str],
+        keep_dismissed: bool = False,
     ) -> list[dict]:
         """Return the links this slot's own tool rows own, newest owning event first.
 
@@ -180,6 +181,10 @@ class SlotProjection:
         ``state_parts/source_links.py`` reads and strips before anything is
         served: :data:`OWNED_AT_KEY` (the owning row's stamp) and
         :data:`RELATION_KEY` (``created`` or ``acted``).
+
+        ``keep_dismissed`` also returns the links this slot's user hid, for a
+        conductor's roll-up: a chip hidden on a worker's card is that card's
+        choice, not the conductor's.
         """
         from kiro_crew.dashboard.handlers.source_providers import (
             gitlab_hosts_generation,
@@ -212,7 +217,7 @@ class SlotProjection:
             hash(dismissed),
         )
         if slot._source_links_cache and slot._source_links_cache[0] == cache_key:
-            return slot._source_links_cache[1]
+            return slot._source_links_cache[2 if keep_dismissed else 1]
 
         # Asked of the provider registry rather than hard-coded here, so a
         # registered provider's own path marker is honoured by the pre-parse
@@ -232,6 +237,9 @@ class SlotProjection:
         # tool row costs a bounded read of its own (``ownership``) and is read
         # once per change through the row memo below.
         parse_budget = max_links * 64
+        # The walk keeps the links the user hid too (a conductor's roll-up reads
+        # them), so it may keep that many more and still fill the card.
+        walk_cap = max_links + len(dismissed)
 
         def candidates(text: str) -> Iterator[str]:
             return iter_source_url_candidates(text, path_markers)
@@ -244,13 +252,10 @@ class SlotProjection:
                 if relation == "created":
                     found[identity][CREATED_KEY] = True
                 return
-            # Keyed on the serialized identity so the suppression matches the
-            # object, not the particular URL that named it again.
-            if source_ref_identity_key(identity) in dismissed:
-                return
             # First writer wins, and because the walk is backwards the first
             # writer IS the newest event -- so the newest URL (and any sub-path
-            # pin it carries) is the one the chip links to.
+            # pin it carries) is the one the chip links to. A link the user hid
+            # is kept here and filtered below.
             found[identity] = {
                 **source_link_dict(ref, source_ref_label, source_ref_identity_key),
                 OWNED_AT_KEY: at,
@@ -269,7 +274,7 @@ class SlotProjection:
         )
         next_memo: dict[int, tuple[Any, Any, Any, list]] = {}
         for msg in reversed(summary_rows(slot)):
-            if len(found) >= max_links or parse_budget <= 0:
+            if len(found) >= walk_cap or parse_budget <= 0:
                 break
             # A ``/clear`` starts the session over: a change or issue named
             # before it belongs to the dropped conversation, so its chip goes
@@ -300,7 +305,7 @@ class SlotProjection:
                 at = row_timestamp(msg.get("ts")) if owned else 0.0
                 # Newest first within the row too: the line gh printed last.
                 for ref, relation in reversed(owned):
-                    if len(found) >= max_links:
+                    if len(found) >= walk_cap:
                         break
                     add(ref, at, relation)
             content = msg.get("content")
@@ -324,7 +329,7 @@ class SlotProjection:
             # newest-first within the cap.
             recent = deque(candidates(content), maxlen=max(parse_budget, 0))
             for candidate in reversed(recent):
-                if len(found) >= max_links or parse_budget <= 0:
+                if len(found) >= walk_cap or parse_budget <= 0:
                     break
                 # A GitHub URL that text only MENTIONS (a status note, pasted
                 # context, a compaction summary) is not the chat's; the chat
@@ -342,10 +347,11 @@ class SlotProjection:
                     continue
                 add(ref, row_timestamp(msg.get("ts")), "mentioned")
 
-        links = list(found.values())
-        slot._source_links_cache = (cache_key, links)
+        every = list(found.values())
+        links = [link for link in every if link["identity"] not in dismissed][:max_links]
+        slot._source_links_cache = (cache_key, links, every)
         slot._owned_row_memo = (cache_key[1], next_memo)
-        return links
+        return every if keep_dismissed else links
 
     @staticmethod
     def to_dict(

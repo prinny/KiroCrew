@@ -458,11 +458,12 @@ def _pr_source_links(self: _ChatSlot) -> list[dict]:
         source_link_dict,
     )
 
-    def own_links(slot: _ChatSlot) -> list[dict]:
+    def own_links(slot: _ChatSlot, *, keep_dismissed: bool = False) -> list[dict]:
         return slot._projection.source_links(
             slot,
             max_links=_MAX_SOURCE_LINKS_PER_SLOT,
             non_durable_roles=_NON_DURABLE_SOURCE_LINK_ROLES,
+            keep_dismissed=keep_dismissed,
         )
 
     path_markers = source_link_path_markers()
@@ -478,7 +479,9 @@ def _pr_source_links(self: _ChatSlot) -> list[dict]:
         for key in ledger.workers:
             worker = peer(key)
             if worker is not None and worker is not self:
-                workers.append(own_links(worker))
+                # Only this card's own unlinks apply below; one the user made on
+                # the worker's card is that card's.
+                workers.append(own_links(worker, keep_dismissed=True))
     dismissed = SlotProjection.dismissed_identity_keys(self)
     cached = getattr(self, "_owned_links_cache", None)
     if (
