@@ -1624,6 +1624,8 @@ def test_a_missing_self_served_binary_names_its_install_command(
     from kiro_crew.agent_sdk.backends import launch_for
 
     launch = launch_for(backend)
+    # Keep project-config discovery inside this test, not the host's ancestors.
+    (tmp_path / ".git").mkdir()
     empty = tmp_path / "empty-bin"
     empty.mkdir()
     monkeypatch.delenv(launch.bin_env_var, raising=False)

@@ -223,6 +223,8 @@ class TestBuiltinDeclaredResourcesActuallyRegister:
         # into a valid builtin's persisted manifest.
         declared.discard("config_keys_error")
         declared.discard("credential_masks_errors")
+        # The parsed input itself (what a signature covers), not a declaration.
+        declared.discard("source_document")
 
         manifest = AppManifest.from_dict(
             {
@@ -235,6 +237,7 @@ class TestBuiltinDeclaredResourcesActuallyRegister:
                 "minKiroCrewVersion": "1.0.0",
                 "signer": "s",
                 "signature": "sig",
+                "fileDigests": {"agents/a.json": "0" * 64},
                 "agents": ["agents/a.json"],
                 "skills": ["skills/s"],
                 "sops": ["sops/x.md"],
@@ -1319,7 +1322,7 @@ class TestRefreshAppAgentsReportsIoFailures:
         monkeypatch.setattr(
             brmod,
             "_registration_denied",
-            lambda name, action, app_root: None,
+            lambda name, action, app_root, manifest=None: None,
         )
 
     def test_an_io_failure_is_collected(self, monkeypatch, tmp_path):
@@ -1375,7 +1378,9 @@ class TestRefreshAppAgentsReportsIoFailures:
         import kiro_crew.apps.bridges as brmod
 
         self._wire(monkeypatch, brmod, tmp_path)
-        monkeypatch.setattr(brmod, "_registration_denied", lambda name, action, app_root: "revoked")
+        monkeypatch.setattr(
+            brmod, "_registration_denied", lambda name, action, app_root, manifest=None: "revoked"
+        )
         scrubbed: list[str] = []
         monkeypatch.setattr(brmod, "_deregister_agents", lambda name: scrubbed.append(name))
         monkeypatch.setattr(

@@ -25,6 +25,7 @@ from urllib.parse import urlparse, urlunparse
 
 from kiro_crew import platform_compat
 from kiro_crew.apps import deps_boot as _deps_boot_module
+from kiro_crew.apps.admission import signed_execution_root as _signed_execution_root
 from kiro_crew.apps.bridges_agents import _is_within, _register_agents
 from kiro_crew.apps.bridges_mcp_config import (
     _health_reconcile_guard,
@@ -32,7 +33,11 @@ from kiro_crew.apps.bridges_mcp_config import (
     _read_mcp_json_unlocked,
     _write_mcp_json_unlocked,
 )
-from kiro_crew.apps.bridges_sources import _registration_denied, _registration_source
+from kiro_crew.apps.bridges_sources import (
+    _app_resource_root,
+    _registration_denied,
+    _registration_source,
+)
 from kiro_crew.apps.execution import shipped_builtin_app_root
 from kiro_crew.apps.interpreter import (
     app_deps_dir,
@@ -42,6 +47,8 @@ from kiro_crew.apps.interpreter import (
 )
 from kiro_crew.apps.manager import app_dir
 from kiro_crew.apps.manifest import AppManifest, has_stdio_mcp_server, is_module_style_entry_point
+from kiro_crew.apps.signed_imports import pycache_prefix_env as _pycache_prefix_env
+from kiro_crew.apps.signed_mcp import with_python_cache_prefix as _with_python_cache_prefix
 from kiro_crew.atomic_write import atomic_write
 from kiro_crew.env import emit_env
 from kiro_crew.executors import maintenance_executor
@@ -1009,6 +1016,16 @@ def _register_mcp_servers(
     """
     if not manifest.mcpServers:
         return []
+    root = app_dir(app_name)
+    cache_root = root
+    if any(isinstance(cfg, dict) and not cfg.get("url") for cfg in manifest.mcpServers.values()):
+        try:
+            root = _signed_execution_root(app_name, root)
+            cache_root = _app_resource_root(app_name)
+        except (OSError, ValueError, RuntimeError) as exc:
+            logger.warning("App %s: MCP command source is unavailable: %s", app_name, exc)
+            _deregister_mcp_servers(app_name)
+            return []
     resolved_port = _live_port_for(app_name, live_port)
     _maybe_provision_backendless_deps(app_name, manifest)
     registered: list[str] = []
@@ -1055,10 +1072,16 @@ def _register_mcp_servers(
                 # `resolve_stdio_command`) — and surface an unresolvable command
                 # instead of letting the tools go silently missing.
                 if isinstance(cfg, dict):
-                    cfg = resolve_stdio_command(cfg, app_root=app_dir(app_name))
+                    cfg = resolve_stdio_command(cfg, app_root=root)
+                    # kiro-cli starts this per session; under a signature policy its
+                    # Python reads no bytecode from the app's tree.
+                    prefix_env = _pycache_prefix_env(app_name, cache_root)
+                    if prefix_env:
+                        cfg["env"] = {**(cfg.get("env") or {}), **prefix_env}
+                        cfg = _with_python_cache_prefix(cfg, prefix_env["PYTHONPYCACHEPREFIX"])
                     _schedule_unresolvable_warning(app_name, server_name, cfg)
                     # This file is consumed by kiro-cli, which applies a declared
-                    # env per key — an app manifest naming a PATH fragment would
+                    # env per key; an app manifest naming a PATH fragment would
                     # hand its server that fragment as the WHOLE PATH. Emit
                     # through the shared normalization point (env.emit_env).
                     env = cfg.get("env")
@@ -1120,6 +1143,26 @@ def registered_app_mcp_servers() -> dict[str, Any]:
     return dict(servers) if isinstance(servers, dict) else {}
 
 
+def _url_only_mcp_servers(servers: Any) -> bool:
+    """Whether every declared MCP server is a plain ``url`` entry.
+
+    The ``declarative`` test for :func:`_registration_denied`: a stdio or command
+    server runs from the app's tree, a URL-only one reads nothing from it. Anything
+    that is not a mapping of such entries answers False, which fails closed to the
+    full signed-content comparison.
+    """
+    if not isinstance(servers, dict):
+        return False
+    return all(
+        isinstance(cfg, dict)
+        and isinstance(cfg.get("url"), str)
+        and bool(cfg["url"])
+        and "command" not in cfg
+        and "args" not in cfg
+        for cfg in servers.values()
+    )
+
+
 def reregister_app_mcp_servers(
     app_name: str, live_port: int | None = None, io_failures: list[str] | None = None
 ) -> list[str]:
@@ -1129,11 +1172,26 @@ def reregister_app_mcp_servers(
     sourced from their immutable package manifest; denied apps have any stale
     global entries scrubbed instead of being made reachable.
     """
-    manifest, app_root = _registration_source(app_name)
+    try:
+        manifest, app_root = _registration_source(app_name)
+    except (OSError, ValueError, RuntimeError) as exc:
+        logger.warning("App %s: MCP registration source is unavailable: %s", app_name, exc)
+        if io_failures is not None:
+            io_failures.append(f"{app_name}: publisher tree unavailable")
+        _deregister_mcp_servers(app_name)
+        return []
+    # Declarative only when every server is a plain url entry: a stdio or command
+    # server runs from the tree, and this path also re-materializes agents, which
+    # read it. Anything else fails closed to the full content comparison.
+    url_only = (
+        manifest is not None and _url_only_mcp_servers(manifest.mcpServers) and not manifest.agents
+    )
     if _registration_denied(
         app_name,
         action="mcp_register",
         app_root=app_root,
+        manifest=manifest,
+        declarative=url_only,
     ):
         _deregister_mcp_servers(app_name)
         return []
@@ -1187,7 +1245,14 @@ def scrub_backend_mcp_url(app_name: str, unreconciled: list[str] | None = None) 
     manifest that simply declares no servers is fully reconciled: there is nothing stale
     to correct.
     """
-    manifest, app_root = _registration_source(app_name)
+    try:
+        manifest, app_root = _registration_source(app_name)
+    except (OSError, ValueError, RuntimeError) as exc:
+        logger.warning("App %s: MCP scrub source is unavailable: %s", app_name, exc)
+        if unreconciled is not None:
+            unreconciled.append(f"{app_name}: publisher tree unavailable")
+        _deregister_mcp_servers(app_name)
+        return []
     if not manifest and unreconciled is not None:
         # Unreadable, not merely empty: the agents are kept (see below) and therefore
         # still name the removed server, and `refresh_app_agents` gives up on the same
@@ -1223,7 +1288,16 @@ def scrub_backend_mcp_url(app_name: str, unreconciled: list[str] | None = None) 
     # The admission gate that `reregister_app_mcp_servers` applies is kept explicitly: a
     # denied app gets a FULL removal rather than the selective keep-stdio treatment,
     # because nothing of a denied app should stay reachable.
-    if _registration_denied(app_name, action="mcp_register", app_root=app_root):
+    # Declarative only when every server is a plain url entry (manifest is set
+    # here): a stdio or command server runs from the tree.
+    url_only = _url_only_mcp_servers(manifest.mcpServers)
+    if _registration_denied(
+        app_name,
+        action="mcp_register",
+        app_root=app_root,
+        manifest=manifest,
+        declarative=url_only,
+    ):
         _deregister_mcp_servers(app_name)
         return []
     return _register_mcp_servers(app_name, manifest, live_port=None)

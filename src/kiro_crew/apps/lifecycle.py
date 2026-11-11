@@ -21,6 +21,7 @@ from kiro_crew.apps.module_loader import (
     cached_http_app_grant,
     load_app_module,
     resolve_loaded_callable,
+    verify_hook_source,
 )
 from kiro_crew.sel import sel
 
@@ -530,6 +531,12 @@ class LifecycleDispatcher:
             if phase == "shutdown":
                 func = resolve_loaded_callable(app_name, hook_path)
             if func is None:
+                # The signed-content check hashes the tree: off the loop, first.
+                # The load that follows on this task takes the prepared verdict.
+                if shipped_builtin_app_root(app_name) is None:
+                    await asyncio.to_thread(
+                        verify_hook_source, app_name, app_dir(app_name), hook_path
+                    )
                 func = self._resolve_hook(app_name, hook_path)
             if func is None:
                 raise ImportError(f"hook {hook_path!r} did not resolve for app {app_name!r}")

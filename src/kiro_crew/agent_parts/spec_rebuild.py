@@ -678,6 +678,11 @@ def rebuild_agent_config(
     # auto-approve grant on the name for whatever is bound there next.
     _app_owned_at_start = mcp_sources._app_owned_mcp_keys()
 
+    # Read before the spec snapshot: a migration completed by another writer
+    # cannot make this rebuild's pre-migration snapshot safe to write unchanged.
+    from kiro_crew.agent_materialization import legacy_mcp
+
+    _legacy_pending = legacy_mcp.pending(path=path)
     if not clean and path.exists():
         # Existing config — preserve user customizations, only refresh
         # security-critical and dynamic fields.
@@ -722,7 +727,9 @@ def rebuild_agent_config(
     # See docs/architecture/mcp.md. CC global is kept only as a gap-filler so
     # the Claude Code provider can be re-enabled later without rework; it must
     # not shadow a Kiro-global entry.
-    sources = mcp_sources.merge_mcp_sources(config)
+    sources = mcp_sources.merge_mcp_sources(
+        config, app_owned_at_start=_app_owned_at_start, legacy_pending=_legacy_pending
+    )
 
     # Resolve MCP commands to absolute paths and validate.
     #
@@ -869,6 +876,8 @@ def rebuild_agent_config(
                 sources=sources,
                 resolved=resolved,
                 app_owned_at_start=_app_owned_at_start,
+                mounted_aliases=mounted,
+                legacy_pending=_legacy_pending,
             )
             from kiro_crew import mcp_dropped_servers
             from kiro_crew.mcp_utils import mcp_server_alias

@@ -66,7 +66,7 @@ def test_a_valid_block_round_trips_and_is_signed() -> None:
     assert m.to_dict()["desktop"] == expected
     assert "desktop" not in m.extra
     assert AppManifest.from_dict(m.to_dict()).desktop == m.desktop
-    assert json.loads(m.signing_payload())["desktop"] == expected
+    assert json.loads(m.signing_payload())["manifest"]["desktop"] == expected
 
 
 def test_a_panel_gets_its_defaults_spelled_out() -> None:
@@ -88,7 +88,7 @@ def test_an_absent_block_changes_nothing() -> None:
     m = AppManifest.from_dict(dict(_BASE))
     assert m.desktop == DesktopConfig()
     assert "desktop" not in m.to_dict()
-    assert "desktop" not in json.loads(m.signing_payload())
+    assert "desktop" not in json.loads(m.signing_payload())["manifest"]
 
 
 def test_retargeting_a_shortcut_changes_the_signed_payload() -> None:
