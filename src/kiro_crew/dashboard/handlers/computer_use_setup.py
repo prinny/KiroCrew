@@ -77,6 +77,7 @@ SETUP_ACTIONS: tuple[str, ...] = (
     "verify",
     "restart_driver",
     "reset",
+    "use_builtin_driver",
 )
 
 #: Seconds a status read may take. A status read asks the driver for its
@@ -94,6 +95,7 @@ ACTION_TIMEOUT_SECS: dict[str, float] = {
     "verify": 25.0,
     "restart_driver": 20.0,
     "reset": 10.0,
+    "use_builtin_driver": 10.0,
 }
 
 _PLATFORMS = frozenset({"macos", "windows", "linux", "unknown"})
@@ -106,6 +108,37 @@ _STEP_IDS = frozenset(
 _STEP_STATUSES = frozenset({"done", "current", "pending", "failed", "not_applicable"})
 _ACTION_KINDS = frozenset({"open_pane", "post"})
 _PANES = frozenset({"accessibility", "screen_recording"})
+#: ``setup.FAILURE_STATES``: the states that always carry a ``problem``.
+_FAILURE_STATES = frozenset(
+    {
+        "install_failed",
+        "accessibility_denied",
+        "screen_recording_denied",
+        "temporarily_unavailable",
+        "permission_revoked",
+        "unsupported",
+        "error",
+    }
+)
+#: ``setup.PROBLEM_CODES``, restated so this module stays importable on its own.
+_PROBLEM_CODES = frozenset(
+    {
+        "no_native_driver",
+        "unsupported_platform",
+        "no_desktop_session",
+        "unsupported_session",
+        "install_failed",
+        "install_blocked",
+        "launch_blocked",
+        "crash_loop",
+        "driver_check_failed",
+        "verify_failed",
+        "permission_denied",
+        "permission_revoked",
+        "status_unreadable",
+        "keystone_unreadable",
+    }
+)
 _CAPABILITY_KEYS = (
     "observe_tree",
     "screenshot",
@@ -144,6 +177,24 @@ def _bool(value: object) -> bool:
 def _fallback(state: str, user_action: str) -> dict[str, Any]:
     """A complete document for a failure the setup module could not describe."""
     return shape_document({"state": state, "user_action": user_action})
+
+
+def _problem(value: object, state: str, user_action: str) -> "dict[str, Any] | None":
+    """``{code, message, recoverable}`` for a failure, else ``None``.
+
+    The document's failure reason lives here and nowhere else (``limitations``
+    holds standing platform limits only). A failure state that arrives without a
+    problem still gets one, so the panel always has an error to show.
+    """
+    if isinstance(value, dict):
+        return {
+            "code": _token(value.get("code"), _PROBLEM_CODES, "driver_check_failed"),
+            "message": _text(value.get("message")) or user_action,
+            "recoverable": value.get("recoverable") is not False,
+        }
+    if state in _FAILURE_STATES:
+        return {"code": "driver_check_failed", "message": user_action, "recoverable": True}
+    return None
 
 
 def _sub(doc: dict[str, Any], key: str) -> dict[str, Any]:
@@ -217,7 +268,14 @@ def shape_document(raw: object) -> dict[str, Any]:
         "limitations": limitations,
         "steps": steps,
         "user_action": _text(doc.get("user_action")),
+        "problem": _problem(
+            doc.get("problem"),
+            _token(doc.get("state"), _STATE_SET, "error"),
+            _text(doc.get("user_action")),
+        ),
         "progress": {"last_step": _token(progress.get("last_step"), _STEP_IDS, "")},
+        # How the system stopped the upstream driver at launch ("" when it did not).
+        "blocked": _text(doc.get("blocked"), MAX_SHORT),
     }
 
 

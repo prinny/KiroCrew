@@ -230,6 +230,8 @@ async def test_no_action_turns_the_feature_on() -> None:
         "verify",
         "restart_driver",
         "reset",
+        # Sets the keystone's driver choice back to auto; it never turns the feature on.
+        "use_builtin_driver",
     }
 
 
@@ -295,6 +297,8 @@ async def test_missing_setup_module_is_a_shaped_error(monkeypatch) -> None:
         "steps",
         "user_action",
         "progress",
+        "problem",
+        "blocked",
     }
 
 
