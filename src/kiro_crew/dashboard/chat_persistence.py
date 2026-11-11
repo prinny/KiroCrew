@@ -727,6 +727,7 @@ from kiro_crew.dashboard.chat_persistence_parts.restore_drivers import (  # noqa
     _restore_open_slots_steps,
     _restore_recent_sessions_steps,
     _short_scalar,
+    _tail_gh_meta,
     _window_can_wait,
     restore_open_slots,
     restore_open_slots_async,
