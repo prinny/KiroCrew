@@ -19,8 +19,9 @@ here rather than imported, because the gateway core must not depend on a
 built-in app's backend.
 
 Providers are entries in :data:`_PROVIDERS`: one ``validate`` and one ``search``
-function each. Jira and Linear are named in :data:`_PLANNED_PROVIDERS` so a
-request for them gets ``provider_not_supported`` instead of ``invalid_request``.
+function each; Linear's are installed by its own module (``linear``). Jira is
+named in :data:`_PLANNED_PROVIDERS` so a request for it gets
+``provider_not_supported`` instead of ``invalid_request``.
 """
 
 from __future__ import annotations
@@ -1022,7 +1023,13 @@ _PROVIDERS: dict[str, IssueProvider] = {
     ),
 }
 # In the request contract, not implemented yet: each lands as one more entry above.
-_PLANNED_PROVIDERS = frozenset({"jira", "linear"})
+_PLANNED_PROVIDERS = frozenset({"jira"})
+
+
+def install_provider(provider_id: str, provider: IssueProvider) -> None:
+    """Serve *provider_id* with *provider*: for an owner listed after this module
+    (``linear``), which installs itself on import. Idempotent per id."""
+    _PROVIDERS[provider_id] = provider
 
 
 # ── Entry point ─────────────────────────────────────────────────────────────
