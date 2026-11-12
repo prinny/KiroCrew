@@ -2,7 +2,11 @@
  * check-evidence.mjs — the public half of the review pipeline.
  *
  * Verifies opaque facts only, for one pull request:
- *   1. A pipeline evidence comment exists on the PR.
+ *   1. A pipeline evidence comment exists on the PR, posted by the
+ *      account the pipeline itself posts as (see PIPELINE_AUTHOR).
+ *      Marker comments from any other author are ignored: on a public
+ *      repository anyone can comment, so an unverified author proves
+ *      nothing.
  *   2. Its verification marker names this PR's current head SHA and a
  *      "clean" result, and the marker's digest matches the comment body.
  *   3. The comment links an evidence page, and that page exists and
@@ -43,6 +47,9 @@ async function api(path, opts = {}) {
 
 const MARKER_RE = /<!-- pipeline-verification: run=(\d+) head=([0-9a-f]{40}) result=(clean|not-clean)(?: wiki=([A-Za-z0-9._-]+))? digest=([0-9a-f]{64}) -->/;
 const COMMENT_MARKER = '<!-- kirocrew-validation-evidence -->';
+// The account the validation pipeline posts its evidence comments as.
+// A marker comment counts only when this account authored it.
+const PIPELINE_AUTHOR = 'prinny';
 
 function digestOf(body) {
   return createHash('sha256')
@@ -87,7 +94,8 @@ for (let page = 1; page <= 10 && !comment; page++) {
   }
   const comments = await res.json();
   if (comments.length === 0) break;
-  comment = comments.find((c) => c.body && c.body.includes(COMMENT_MARKER)) || null;
+  comment = comments.find((c) => c.body && c.body.includes(COMMENT_MARKER)
+    && c.user && c.user.login === PIPELINE_AUTHOR) || null;
 }
 
 let marker = null;
