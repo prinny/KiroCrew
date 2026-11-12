@@ -211,6 +211,34 @@ error names the stores that were hidden.
 - Do not make `~/.aws/config` a symlink. On Linux the sandbox copies whatever
   the link points at, so a link to a credential file would expose it.
 
+OpenCode runs under the same mask, and of `~/.aws` only `~/.aws/config` stays
+readable there too. OpenCode's `amazon-bedrock` provider resolves its
+credentials through that file, so an OpenCode session can reach Amazon Bedrock
+— the Bedrock model catalogue, not only Anthropic models — through a profile
+defined in it. The profile's credentials must come from a `credential_process`
+that reads nothing under the hidden stores: `~/.aws/credentials` and the SSO
+cache stay hidden, so a profile that relies on them does not resolve. Define
+the profile in `~/.aws/config`:
+
+```ini
+[profile crew-bedrock]
+region = us-west-2
+credential_process = /path/to/your/credential/helper
+```
+
+Bind it with `aws.project_profiles` or with `agent.env`:
+
+```bash
+kirocrew config set agent.env '{"AWS_PROFILE": "crew-bedrock", "AWS_REGION": "us-west-2"}'
+```
+
+and name the model in OpenCode's own provider configuration as
+`amazon-bedrock/<model-id>`, for example `amazon-bedrock/amazon.nova-pro-v1:0`.
+Pin the model: with no model named, an OpenCode session starts on OpenCode's
+own default, which is not a Bedrock model. The two warnings above apply to
+OpenCode exactly as they do to Codex. If an OpenCode session or turn fails with
+an AWS credential error, the error names the stores that were hidden.
+
 The non-default harnesses are offered only when this build registers them. A
 host governance policy can narrow that list further, and the dashboard reports
 missing harness components with their install command. `kirocrew doctor` reports
