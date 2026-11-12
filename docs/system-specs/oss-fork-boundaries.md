@@ -38,22 +38,29 @@ security-path spelling. This file is a standing boundary.
   [rfc-pluggable-model-providers.md](../request-for-change/rfc-pluggable-model-providers.md)
   asks for; until it is accepted the boundary holds.
 
-  **Fork extension — one native provider.** This fork deliberately diverges
-  from the rule above in exactly one place: `agent.provider` admits a
+  **Fork extension — native providers.** This fork deliberately diverges
+  from the rule above in exactly two places: `agent.provider` admits a
   second value, `meta_api`, selecting a first-party provider that calls the
-  Meta Model API directly instead of driving a harness over ACP. The
-  divergence is knowing, narrow, and labelled. The ACP provider remains the
-  default and the floor. The native provider routes every tool call through
-  the permission gate — its approval mode is forced by the provider and
-  verified before the first prompt, the same admission bar every ACP
+  Meta Model API directly instead of driving a harness over ACP; and a
+  third value, `bedrock`, selecting a first-party provider that calls
+  Amazon Bedrock's Converse API directly, with credentials resolved
+  gateway-side through the AWS SDK's own credential chain. (The Bedrock
+  value supersedes this paragraph's earlier "exactly one place / no third
+  provider value" wording, which the Meta extension shipped; the
+  supersession is recorded in
+  [the Bedrock provider decision](../decisions/2026-11-12-native-bedrock-provider.md).)
+  The divergence is knowing, narrow, and labelled. The ACP provider remains
+  the default and the floor. Each native provider routes every tool call
+  through the permission gate — its approval mode is forced by the provider
+  and verified before the first prompt, the same admission bar every ACP
   backend meets — declares its reduced capability set in
   `docs/system-specs/modules/providers.md`, and fills the same per-turn
   usage record as the ACP provider. Nothing else in this section moves: no
-  third provider value is admitted by this extension, and a harness is
+  fourth provider value is admitted by these extensions, and a harness is
   still never selected at `agent.provider` — harnesses remain at
   `agent.acp_backend`. If upstream accepts
-  `rfc-pluggable-model-providers`, this extension is retired in favour of
-  the accepted seam and this paragraph is removed in the same change.
+  `rfc-pluggable-model-providers`, these extensions are retired in favour
+  of the accepted seam and this paragraph is removed in the same change.
 
 ## Deliberately inert, and it stays that way
 
@@ -86,6 +93,18 @@ STT extras.
   reduced capability set described in
   `docs/system-specs/modules/providers.md`. The default remains `acp`,
   and an ACP session is indistinguishable from upstream's.
+- **A native Amazon Bedrock provider.** `agent.provider = "bedrock"`
+  runs sessions on a first-party provider (Amazon Bedrock, Converse
+  format) instead of an ACP harness. Native sessions are labelled with
+  their provider in the dashboard, bill against the operator's own AWS
+  account at AWS's prices (the per-turn cost Crew records is an estimate
+  from a dated rate table), and carry the documented reduced capability
+  set described in `docs/system-specs/modules/providers.md`. Credentials
+  resolve gateway-side through the AWS SDK's full credential chain —
+  shared files, named profiles, credential_process helpers, SSO,
+  environment, instance metadata — never in a scrubbed child
+  environment. The default remains `acp`, and an ACP session is
+  indistinguishable from upstream's.
 - The **Channels** app is hidden from the App Store, and the **Board** app is removed.
   An upstream sync must not restore either.
 - **The built-in app set is closed, and it is being emptied.** Kiro Crew accepts no

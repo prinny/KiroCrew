@@ -24,9 +24,13 @@ FAKE_KEY = "sk-TESTKEY-DO-NOT-LOG"
 
 
 def test_provider_enum_is_two_values_acp_first():
+    # Amended by the Bedrock provider change: the enum gained its third
+    # value under the superseding boundary amendment (the two native
+    # providers beside the ACP floor). The premise this test pins —
+    # "acp" first and default, native values after it — is unchanged.
     provider = next(f for f in fields(AgentConfig) if f.name == "provider")
     assert provider.default == "acp"
-    assert provider.metadata["enum"] == ["acp", "meta_api"]
+    assert provider.metadata["enum"] == ["acp", "meta_api", "bedrock"]
 
 
 def test_meta_api_fields_have_safe_defaults():

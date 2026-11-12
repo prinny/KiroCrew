@@ -17,6 +17,7 @@ from kiro_crew.dashboard.handlers.acp_backend_status import (
     api_acp_backend_status,
 )
 from kiro_crew.dashboard.handlers.agent_spec_pins import api_agent_spec_pin_write
+from kiro_crew.dashboard.handlers.bedrock import api_bedrock_test
 from kiro_crew.dashboard.handlers.gateway_footprint import api_mcp_gateway_footprint
 from kiro_crew.dashboard.handlers.mcp_custom import (
     api_mcp_custom_add,
@@ -54,6 +55,11 @@ def register(app: web.Application) -> None:
     # the models endpoint. Answers with the outcome class only — the key and
     # the upstream body never cross the route (handlers/meta_api.py).
     app.router.add_post("/api/meta-api/test", api_meta_api_test)
+    # Native Bedrock provider: verify the chain-resolved identity over STS
+    # and count discovery. Answers with the identity announcement and the
+    # outcome class only — credential material never crosses the route
+    # (handlers/bedrock.py).
+    app.router.add_post("/api/bedrock/test", api_bedrock_test)
     app.router.add_get("/api/config/kirocrew", handlers.api_kirocrew_config)
     app.router.add_put("/api/config/kirocrew", handlers.api_kirocrew_config)
     app.router.add_patch("/api/config/kirocrew", handlers.api_kirocrew_config_patch)

@@ -7,8 +7,10 @@ concrete subclass, the adapter a shared-runtime session is swapped onto once
 `AcpRuntime` is up. This fork adds one more implementation behind the same
 ABC: `MetaApiProvider` (below), selected by `agent.provider = "meta_api"`
 under the boundary amendment in
-[oss-fork-boundaries.md](../oss-fork-boundaries.md).
-`agent.provider` is `enum ["acp", "meta_api"]` with `"acp"` the default —
+[oss-fork-boundaries.md](../oss-fork-boundaries.md), and `BedrockProvider`
+(below), selected by `agent.provider = "bedrock"` under the superseding
+amendment recorded in the same document.
+`agent.provider` is `enum ["acp", "meta_api", "bedrock"]` with `"acp"` the default —
 the provider is not the harness selector. **Which harness the ACP provider
 drives is a separate decision, taken from `agent_sdk/backends.py`**: `agent.acp_backend` names a backend id
 and `BASELINE_SELECTABLE_BACKENDS` decides which ids an operator may choose.
@@ -1554,6 +1556,81 @@ catalogue):
 | 9 | Per-turn billing object identity: a different object per turn | contract suite |
 | 10 | A native session's files/journal are never routed to ACP cleanup or resume (own provider label) | `provider_label` unit coverage + contract cleanup test |
 
+## BedrockProvider (`providers/bedrock.py`) — this fork's native Bedrock provider
+
+Selected by `agent.provider = "bedrock"` under the superseding boundary
+amendment in [oss-fork-boundaries.md](../oss-fork-boundaries.md). It serves
+the Amazon Bedrock catalogue directly over the Converse API: no ACP, no
+harness, no child process. The gateway itself holds a boto3 session and
+runs the turn loop in-process.
+
+**Credentials — the full AWS SDK chain, gateway-side.** A `boto3.Session`
+is built with at most a profile name (`agent.bedrock_profile`, bound per
+session); the SDK's own default chain resolves credentials — shared
+config/credentials files, named profiles, `credential_process` helpers,
+SSO, static keys, session tokens, environment, instance metadata. No
+subset is re-implemented: a provider that takes only a bearer key or only
+env vars is the failure mode this design exists to avoid. Credentials
+resolve where the gateway runs, never in a scrubbed child environment, so
+the raw IAM triple works by construction. At `start()` the provider
+verifies the identity over STS and announces it (account id, principal
+ARN, and the credential SOURCE CLASS — never credential material) in the
+log, the session journal's header record, the doctor row and the
+test-connection route. `agent.bedrock_expected_account_id` pins the
+account: a mismatch refuses the session. Three optional vault references
+(`agent.bedrock_access_key_id_ref`, `bedrock_secret_access_key_ref`,
+`bedrock_session_token_ref`, each a `secret://` reference — plaintext is
+refused at config write) are written into the gateway environment only
+when no profile is selected, so a per-session profile binding always
+outranks them. The Region comes from `agent.bedrock_region` or the
+profile; there is no default Region, and a session with neither refuses
+to start.
+
+**Modules.** `bedrock_client.py` is the boto3 seam (session factory, STS
+verification, classified errors, bounded ThrottlingException-only retry).
+`bedrock_models.py` builds the catalogue by live discovery —
+`ListFoundationModels` (text-output) joined with `ListInferenceProfiles`:
+profile-carried models are offered through their ACTIVE profiles,
+on-demand models directly, application profiles by ARN; provisioned-only
+models are never offered, and known InvokeModel-only models are listed
+annotated and unserved in v1. Discovery exposes no capability fields, so
+tool-use support and context windows come from a maintained overlay; an
+unknown model is offered with tool use off and window 0 (the contract's
+"unknown"). `bedrock_events.py` translates Converse streams (and
+non-streaming responses, re-expressed as streams) into `AcpEvent`s,
+assembling toolUse input fragments per content block and accumulating
+reasoning signatures for unchanged resubmission. `bedrock_rates.py` is a
+dated rate table keyed by model family × Region class: per-turn costs
+are ESTIMATES from it, AWS billing is the ground truth, and an unrated
+family records tokens with zero cost and a partial label.
+`bedrock_tools.py` is the gateway-side tool executor (composed from the
+existing sandbox wrap and child-env scrub at a new call site): the local
+file/shell tool set plus MCP tools from the session's configured MCP
+servers, which ARE routed into native Bedrock sessions.
+
+**The turn loop.** Converse is stateless, so the provider journals the
+FULL Converse transcript per session and resubmits it each call. A
+`tool_use` stop reason runs the tool loop: every call surfaces as a
+permission request through the pending-approval registry and executes
+ONLY after approval; a denial appends a `toolResult` with status
+`error`, visible to the model on its next call. The loop is capped per
+turn (`agent.bedrock_max_tool_steps`, default 50). Bedrock's refusal
+signal is typed: `content_filtered` and `guardrail_intervened` complete
+the turn as refusals carrying a `RefusalInfo` (with the guardrail trace
+when one rode the stream), and an optional guardrail
+(`agent.bedrock_guardrail_id` / `bedrock_guardrail_version`) applies to
+every call. `max_tokens` keeps its own stop-reason spelling and flags
+the terminal event `truncated`.
+
+**Declarations.** No member/worker machinery (the factory refuses it),
+no steer channel (Converse has no mid-call input), effort not served,
+MCP config reload not served, compaction is Crew-owned summarisation
+with manual compact marked unsupported for this backend until the
+explicit-compact parity test passes. boto3 rides the existing
+`kirocrew[bedrock]` extra and is imported lazily: a boto3-less install
+runs every other provider unaffected and refuses Bedrock sessions at
+start with the reason named.
+
 ## Config (`config/loader.py`)
 
 ```json
@@ -1565,9 +1642,9 @@ catalogue):
 }
 ```
 
-- `agent.provider` is `enum ["acp", "meta_api"]`, default `"acp"`: `"acp"` selects the ACP provider (the floor every other value degrades toward at load); `"meta_api"` selects this fork's native Meta Model API provider (see `MetaApiProvider` below and the boundary amendment in [oss-fork-boundaries.md](../oss-fork-boundaries.md)). It is a provider choice, never a harness choice.
+- `agent.provider` is `enum ["acp", "meta_api", "bedrock"]`, default `"acp"`: `"acp"` selects the ACP provider (the floor every other value degrades toward at load); `"meta_api"` selects this fork's native Meta Model API provider and `"bedrock"` its native Amazon Bedrock provider (see `MetaApiProvider` and `BedrockProvider` below and the boundary amendments in [oss-fork-boundaries.md](../oss-fork-boundaries.md)). It is a provider choice, never a harness choice.
 - `agent.acp_backend` is the harness choice, resolved through `agent_sdk.backends.resolve_selected_backend` (the top-level `acp_backends` module is a re-export shim kept for existing call sites). A stored Kiro CLI pick (`"kiro"`) resolves to KAS once the gateway confirmed the host's kiro-cli offers v3 and while KAS is selectable, so the factory builds a KAS provider for it with KAS's launch, projection, permissions and compaction; it builds the Kiro CLI provider without that confirmation ([harness-parity](harness-parity.md) H1). The Kiro CLI provider, its skill-view aliases and the `cli.json` overlay stay for that case.
-- `create_provider_factory()` dispatches on `agent.provider`: `"meta_api"` builds a `MetaApiProvider` through `_create_meta_api_provider_factory` (which refuses member/worker sessions); `"acp"` builds an `AcpProvider` for the resolved backend; any other value fails closed.
+- `create_provider_factory()` dispatches on `agent.provider`: `"meta_api"` builds a `MetaApiProvider` through `_create_meta_api_provider_factory` and `"bedrock"` builds a `BedrockProvider` through `_create_bedrock_provider_factory` (each refuses member/worker sessions); `"acp"` builds an `AcpProvider` for the resolved backend; any other value fails closed.
 
 An agent spec's model is consumed by kiro-cli before Kiro Crew reaches
 `session/new`, so the live-session entitlement guard cannot diagnose a wrong
