@@ -45,3 +45,5 @@ machines rather than by prose.
 Any push that changes the PR head invalidates the previous evidence: the
 marker covers one exact head SHA, so validation must be re-run for the
 new head before the check passes again.
+
+<!-- review-gate negative test: trivial non-bump change; no validation evidence exists for this head. -->
