@@ -455,6 +455,12 @@ PROVIDER_LABEL_CLAUDE = "claude_code"
 #: session (harness-parity H11's closed mapping, extended by the fork's
 #: provider amendment).
 PROVIDER_LABEL_META_API = "meta_api"
+#: The session-map label of the native Amazon Bedrock provider
+#: (``agent.provider = "bedrock"``). Not an ACP backend label: it exists
+#: so a native session is never persisted, resumed or cleaned up as an
+#: ACP session (harness-parity H11's closed mapping, extended by the
+#: fork's provider amendment).
+PROVIDER_LABEL_BEDROCK = "bedrock"
 PROVIDER_LABEL_KAS = "kas"
 PROVIDER_LABEL_CODEX = "codex"
 PROVIDER_LABEL_OPENCODE = "opencode"
@@ -736,6 +742,11 @@ def classify_stop_reason(
     reason = stop_reason or ""
     if reason in ("", STOP_REASON_END_TURN):
         return StopClass(STOP_CLASS_SUCCEEDED, reason)
+    if reason == "max_tokens":
+        # A reply cut short by the output-token ceiling is still a
+        # completed turn; the terminal event's ``truncated`` flag
+        # carries the caveat.
+        return StopClass(STOP_CLASS_SUCCEEDED, reason)
     if reason == STOP_REASON_TOOL_STALL:
         return StopClass(STOP_CLASS_STALLED, reason, recoverable=True)
     if reason == STOP_REASON_STALE_RECOVER:
@@ -1003,6 +1014,12 @@ class AcpEvent:
     #: ``None`` on every other terminal, including a plain ``end_turn`` whose
     #: metadata said nothing about a refusal.
     refusal: "RefusalInfo | None" = None
+    #: True on an ``EVENT_COMPLETE`` whose reply was cut short by the
+    #: model's output-token ceiling (the ``max_tokens`` stop reason):
+    #: the turn SUCCEEDED, but the reply is knowingly incomplete, and
+    #: this flag is how a consumer tells the two apart. ``False`` on
+    #: every other event.
+    truncated: bool = False
     #: Set on ``EVENT_MODEL_FALLBACK``: the engine's fallback decision, an
     #: ``engine_fallback.ModelFallbackNotice``. ``None`` on every other event.
     model_fallback: Any = None

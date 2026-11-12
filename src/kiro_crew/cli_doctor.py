@@ -541,6 +541,54 @@ def _doctor_meta_api(cfg: KiroCrewConfig, issues: list[str]) -> None:
         issues.append(f"meta api: models endpoint {report.error_class}")
 
 
+def _doctor_bedrock(cfg: KiroCrewConfig, issues: list[str]) -> None:
+    """Native Bedrock provider row — printed only when selected.
+
+    Parity with the other provider rows: when ``agent.provider``
+    selects the native Bedrock provider, the doctor verifies what a
+    session needs before its first prompt — boto3 importable (the
+    ``[bedrock]`` extra), then the STS identity and model discovery
+    through the same test-connection check the dashboard route runs.
+    The report carries the identity announcement (account, principal,
+    source class) and the model count — never credential material.
+    When the provider is not selected the row is silent.
+    """
+    from kiro_crew.agent_sdk.provider_identity import is_bedrock
+
+    if not is_bedrock(cfg.agent.provider):
+        return
+    from kiro_crew.providers.bedrock import test_connection
+    from kiro_crew.providers.bedrock_client import (
+        ENV_ACCESS_KEY_ID,
+        ENV_SECRET_ACCESS_KEY,
+        ENV_SESSION_TOKEN,
+        boto3_available,
+    )
+
+    if not boto3_available():
+        print("  bedrock:     ❌ boto3 not installed (the kirocrew[bedrock] extra)")
+        issues.append("bedrock: boto3 missing")
+        return
+    report = test_connection(
+        region=cfg.agent.bedrock_region,
+        profile=cfg.agent.bedrock_profile or None,
+        credential_refs={
+            ENV_ACCESS_KEY_ID: cfg.agent.bedrock_access_key_id_ref,
+            ENV_SECRET_ACCESS_KEY: cfg.agent.bedrock_secret_access_key_ref,
+            ENV_SESSION_TOKEN: cfg.agent.bedrock_session_token_ref,
+        },
+    )
+    if report.ok:
+        print(
+            f"  bedrock:     ✅ account {report.identity_account} "
+            f"({report.identity_source}), {report.model_count} models "
+            f"in {report.region} ({report.latency_ms:.0f} ms)"
+        )
+    else:
+        print(f"  bedrock:     ❌ connection check failed: {report.error_class}")
+        issues.append(f"bedrock: connection {report.error_class}")
+
+
 def _selected_roles_run_kiro_cli(cfg: KiroCrewConfig) -> tuple[bool, bool]:
     """Which selected roles spawn kiro-cli: ``(kiro_role, relay_kas_role)``.
 
@@ -914,6 +962,9 @@ def _doctor(platform_boot_error: "Exception | None" = None, bundle: bool = False
 
     # ── Native Meta Model API provider (only when selected) ──
     _doctor_meta_api(cfg, issues)
+
+    # ── Native Bedrock provider (only when selected) ──
+    _doctor_bedrock(cfg, issues)
 
     # ── Pods (systemd --user session bus) ──
     services._doctor_pod_session_bus(issues)

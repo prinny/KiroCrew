@@ -206,8 +206,12 @@ class AgentConfig:
             "fork's native Meta Model API provider: Muse models over the "
             "Responses API, billed per token at the published rates, with "
             "the reduced capability set documented in "
-            "docs/system-specs/modules/providers.md.",
-            enum=["acp", "meta_api"],
+            "docs/system-specs/modules/providers.md. 'bedrock' selects the "
+            "native Amazon Bedrock provider: the full Bedrock catalogue "
+            "over Converse, credentials resolved gateway-side through the "
+            "AWS SDK's own chain, with the capability set documented in "
+            "the same spec.",
+            enum=["acp", "meta_api", "bedrock"],
         ),
     )
     meta_api_secret: str = field(
@@ -238,6 +242,110 @@ class AgentConfig:
             "When this month's recorded native spend reaches the cap, new "
             "native sessions refuse to start. 0 (the default) turns the "
             "guard off. Read only when agent.provider is 'meta_api'.",
+        ),
+    )
+    bedrock_region: str = field(
+        default="",
+        metadata=_meta(
+            "Bedrock Region",
+            "AWS Region for the native Bedrock provider (e.g. 'us-west-2'). "
+            "Empty defers to the selected profile's Region; when neither "
+            "names one, native Bedrock sessions refuse to start — there is "
+            "no default Region. Read only when agent.provider is 'bedrock'.",
+        ),
+    )
+    bedrock_profile: str = field(
+        default="",
+        metadata=_meta(
+            "Bedrock Profile",
+            "Named AWS profile the native Bedrock provider resolves "
+            "credentials through, per session. Empty resolves the SDK's "
+            "default chain (default profile, environment, instance "
+            "metadata). The full chain applies to the named profile: "
+            "shared files, credential_process helpers and SSO included. "
+            "Read only when agent.provider is 'bedrock'.",
+        ),
+    )
+    bedrock_access_key_id_ref: str = field(
+        default="",
+        metadata=_meta(
+            "Bedrock Access Key ID Reference",
+            "Optional 'secret://<vault name>' reference to a static IAM "
+            "access key id for the native Bedrock provider. Plaintext is "
+            "refused at config write. Applied to the gateway environment "
+            "only when no profile is selected for the session. Read only "
+            "when agent.provider is 'bedrock'.",
+        ),
+    )
+    bedrock_secret_access_key_ref: str = field(
+        default="",
+        metadata=_meta(
+            "Bedrock Secret Access Key Reference",
+            "Optional 'secret://<vault name>' reference to the static IAM "
+            "secret access key paired with bedrock_access_key_id_ref. "
+            "Plaintext is refused at config write. Read only when "
+            "agent.provider is 'bedrock'.",
+        ),
+    )
+    bedrock_session_token_ref: str = field(
+        default="",
+        metadata=_meta(
+            "Bedrock Session Token Reference",
+            "Optional 'secret://<vault name>' reference to an AWS session "
+            "token paired with the static key references above. Plaintext "
+            "is refused at config write. Read only when agent.provider is "
+            "'bedrock'.",
+        ),
+    )
+    bedrock_guardrail_id: str = field(
+        default="",
+        metadata=_meta(
+            "Bedrock Guardrail ID",
+            "Optional Bedrock guardrail identifier applied to every "
+            "Converse call in native Bedrock sessions. Empty (the "
+            "default) applies no guardrail. Read only when "
+            "agent.provider is 'bedrock'.",
+        ),
+    )
+    bedrock_guardrail_version: str = field(
+        default="",
+        metadata=_meta(
+            "Bedrock Guardrail Version",
+            "Version of the guardrail named by bedrock_guardrail_id "
+            "(a number or 'DRAFT'). Empty uses 'DRAFT'. Read only when "
+            "agent.provider is 'bedrock'.",
+        ),
+    )
+    bedrock_max_tool_steps: int = field(
+        default=50,
+        metadata=_meta(
+            "Bedrock Max Tool Steps",
+            "Per-turn cap on tool-requesting Converse calls in native "
+            "Bedrock sessions. A turn that reaches the cap ends with an "
+            "error completion instead of spending without bound. Read "
+            "only when agent.provider is 'bedrock'.",
+        ),
+    )
+    bedrock_expected_account_id: str = field(
+        default="",
+        metadata=_meta(
+            "Bedrock Expected Account ID",
+            "Optional account pin for the native Bedrock provider: when "
+            "set, a session refuses to start unless STS reports exactly "
+            "this account. Empty (the default) accepts whichever account "
+            "the credential chain resolves. Read only when "
+            "agent.provider is 'bedrock'.",
+        ),
+    )
+    bedrock_monthly_budget_usd: float = field(
+        default=0.0,
+        metadata=_meta(
+            "Bedrock Monthly Budget (USD)",
+            "Optional monthly spend cap for native Bedrock provider "
+            "sessions, against the provider's estimated costs. When this "
+            "month's recorded native spend reaches the cap, new native "
+            "sessions refuse to start. 0 (the default) turns the guard "
+            "off. Read only when agent.provider is 'bedrock'.",
         ),
     )
     mcp_registry_mode: bool = field(

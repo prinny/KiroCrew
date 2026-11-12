@@ -1,7 +1,7 @@
-// The provider axis: 'acp' (kiro-cli over ACP, the default) or this fork's
-// native Meta Model API provider ('meta_api'). The adapter interface below
-// type-checks for its many consumers against either member.
-export type ProviderId = 'acp' | 'meta_api'
+// The provider axis: 'acp' (kiro-cli over ACP, the default) or one of
+// this fork's native providers ('meta_api', 'bedrock'). The adapter
+// interface below type-checks for its many consumers against any member.
+export type ProviderId = 'acp' | 'meta_api' | 'bedrock'
 
 export interface ProviderCapabilities {
   hooks: boolean

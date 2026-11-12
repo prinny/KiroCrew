@@ -135,19 +135,21 @@ def test_kiro_is_always_selectable() -> None:
 
 
 def test_provider_enum_is_acp_only() -> None:
-    """H2, as amended by the fork's boundary extension: a harness is chosen
-    at ``acp_backend``, never as a second provider.
+    """H2, as amended by the fork's boundary extensions: a harness is
+    chosen at ``acp_backend``, never as a second provider.
 
-    Upstream's pin was ``["acp"]``. This fork admits exactly one more
-    value, ``"meta_api"`` — a first-party native provider, not a harness —
-    under the boundary amendment in ``oss-fork-boundaries.md``. The
-    invariant's substance is unchanged and still pinned here: ``"acp"``
-    stays first and default, no third value exists, and the second value's
-    factory is built INSIDE ``create_provider_factory`` (the dispatch on
-    ``provider_identity.is_meta_api``), never outside it, so it cannot
-    route around the invariants below.
+    Upstream's pin was ``["acp"]``. This fork admits two more values —
+    ``"meta_api"`` and ``"bedrock"`` — each a first-party native
+    provider, not a harness, under the boundary amendments in
+    ``oss-fork-boundaries.md`` (the Bedrock value under the superseding
+    amendment of 2026-11-12). The invariant's substance is unchanged
+    and still pinned here: ``"acp"`` stays first and default, no fourth
+    value exists, and each native value's factory is built INSIDE
+    ``create_provider_factory`` (the dispatches on
+    ``provider_identity.is_meta_api`` / ``is_bedrock``), never outside
+    it, so neither can route around the invariants below.
     """
-    assert _field_enum("provider") == ["acp", "meta_api"]
+    assert _field_enum("provider") == ["acp", "meta_api", "bedrock"]
     assert _field_default("provider") == "acp"
     import inspect
 
@@ -156,6 +158,8 @@ def test_provider_enum_is_acp_only() -> None:
     factory_source = inspect.getsource(loader_config.KiroCrewConfig.create_provider_factory)
     assert "is_meta_api" in factory_source
     assert "_create_meta_api_provider_factory" in factory_source
+    assert "is_bedrock" in factory_source
+    assert "_create_bedrock_provider_factory" in factory_source
 
 
 @pytest.mark.parametrize("persisted", ["", "kas", "byo-harness", "claude", None, 7])

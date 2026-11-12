@@ -1,15 +1,17 @@
 import type { ProviderAdapter, ProviderId } from './types'
 import { AcpAdapter } from './adapters/acp'
 import { MetaApiAdapter } from './adapters/meta_api'
+import { BedrockAdapter } from './adapters/bedrock'
 
 // The adapter registry: 'acp' (kiro-cli over ACP) is the default provider;
-// 'meta_api' is this fork's native Meta Model API provider
-// (agent.provider enum is ["acp", "meta_api"]). Kept as a thin indirection
-// so the 15+ pages that consume useProvider()/the adapter interface for
-// labels/capabilities/model-windows stay unchanged.
+// 'meta_api' and 'bedrock' are this fork's native providers
+// (agent.provider enum is ["acp", "meta_api", "bedrock"]). Kept as a thin
+// indirection so the 15+ pages that consume useProvider()/the adapter
+// interface for labels/capabilities/model-windows stay unchanged.
 const ADAPTERS: Record<ProviderId, ProviderAdapter> = {
   acp: new AcpAdapter(),
   meta_api: new MetaApiAdapter(),
+  bedrock: new BedrockAdapter(),
 }
 
 export function getAdapter(id?: ProviderId): ProviderAdapter {

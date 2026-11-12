@@ -1389,24 +1389,29 @@ class KiroCrewConfig:
         The factory dispatches on ``agent.provider``: ``"acp"`` (the
         default and the floor) builds the ACP adapter driving the selected
         harness; ``"meta_api"`` builds this fork's native Meta Model API
-        provider (:meth:`_create_meta_api_provider_factory`). Load-time
+        provider (:meth:`_create_meta_api_provider_factory`); ``"bedrock"``
+        builds the native Amazon Bedrock provider
+        (:meth:`_create_bedrock_provider_factory`). Load-time
         validation rewrites an out-of-enum provider value to ``"acp"``
-        before this runs, so a value that is neither is a programming
+        before this runs, so a value that is none of these is a programming
         error and fails closed here rather than defaulting silently. The
         factory accepts an optional ``session_key`` to create a
         per-session subdirectory under ``workspace_root()``.
         """
         from kiro_crew.agent_sdk.provider_identity import (
             PROVIDER_ACP,
+            is_bedrock,
             is_meta_api,
         )
 
         if is_meta_api(self.agent.provider):
             return self._create_meta_api_provider_factory()
+        if is_bedrock(self.agent.provider):
+            return self._create_bedrock_provider_factory()
         if self.agent.provider != PROVIDER_ACP:
             raise ValueError(
                 f"Unknown agent.provider {self.agent.provider!r}; expected "
-                f"{PROVIDER_ACP!r} or 'meta_api'"
+                f"{PROVIDER_ACP!r}, 'meta_api' or 'bedrock'"
             )
         from kiro_crew.agent_sdk.drivers.acp import build_acp_provider
         from kiro_crew.session_work_dir import is_disposable_session_key
@@ -1738,3 +1743,82 @@ class KiroCrewConfig:
             )
 
         return _meta_api
+
+    def _create_bedrock_provider_factory(self) -> Callable:
+        """The factory for ``agent.provider = "bedrock"`` sessions.
+
+        Builds :class:`~kiro_crew.providers.bedrock.BedrockProvider` with
+        the same per-session arguments the ACP factory passes its
+        provider. Member and worker sessions are REFUSED here, at
+        construction: the native provider cannot honour the crewmate
+        kit (member dispatch, per-tool limits, the mate-worker kit), so
+        a crewmate must stay on ACP rather than start on a provider
+        that silently drops its kit.
+        """
+        from kiro_crew.providers.bedrock import BedrockProvider
+        from kiro_crew.providers.bedrock_client import (
+            ENV_ACCESS_KEY_ID,
+            ENV_SECRET_ACCESS_KEY,
+            ENV_SESSION_TOKEN,
+        )
+
+        model = self.agent.model
+        if model == DEFAULT_MODEL:
+            model = self._resolve_agent_model()
+        sandbox = self.agent.sandbox
+        region = self.agent.bedrock_region
+        profile = self.agent.bedrock_profile
+        credential_refs = {
+            ENV_ACCESS_KEY_ID: self.agent.bedrock_access_key_id_ref,
+            ENV_SECRET_ACCESS_KEY: self.agent.bedrock_secret_access_key_ref,
+            ENV_SESSION_TOKEN: self.agent.bedrock_session_token_ref,
+        }
+        guardrail_id = self.agent.bedrock_guardrail_id
+        guardrail_version = self.agent.bedrock_guardrail_version
+        max_tool_steps = self.agent.bedrock_max_tool_steps
+        expected_account_id = self.agent.bedrock_expected_account_id
+        monthly_budget = self.agent.bedrock_monthly_budget_usd
+
+        def _bedrock(
+            session_key: str | None = None,
+            agent: str | None = None,
+            channel_id: str | None = None,
+            model_override: str | None = None,
+            cwd: str | None = None,
+            extra_env: dict[str, str] | None = None,
+            reasoning_effort_override: str | None = None,
+            crew_agent: str | None = None,
+            member_context: bool = False,
+            **_kwargs: object,
+        ) -> BedrockProvider:
+            # circular import: members sits above config in the layering.
+            from kiro_crew.members import is_crewmate_worker_session
+
+            if member_context or is_crewmate_worker_session(session_key):
+                raise ValueError(
+                    "agent.provider 'bedrock' does not serve member or "
+                    "worker sessions in this build: the native provider "
+                    "cannot honour the crewmate kit. Bots stay on the ACP "
+                    "provider."
+                )
+            wdir = Path(cwd) if cwd else _session_work_dir(session_key)
+            return BedrockProvider(
+                work_dir=wdir,
+                model=model_override or model,
+                agent=agent,
+                sandbox_mode=sandbox,
+                session_key=session_key,
+                channel_id=channel_id,
+                extra_env=extra_env,
+                bedrock_region=region,
+                bedrock_profile=profile or None,
+                credential_refs=credential_refs,
+                guardrail_id=guardrail_id,
+                guardrail_version=guardrail_version,
+                max_tool_steps=max_tool_steps,
+                expected_account_id=expected_account_id,
+                monthly_budget_usd=monthly_budget,
+                data_home=env_path().parent,
+            )
+
+        return _bedrock

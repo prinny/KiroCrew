@@ -404,6 +404,7 @@ def _refuse_unpublishable(data: dict, path: Path) -> None:
     _refuse_deepseek_env_plaintext(data, path)
     _refuse_vault_env_plaintext(data, path, "strands_env", "a Strands session")
     _refuse_meta_api_secret_plaintext(data, path)
+    _refuse_bedrock_refs_plaintext(data, path)
     _refuse_agent_env_entries(data, path)
 
 
@@ -499,6 +500,55 @@ def _refuse_meta_api_secret_plaintext(data: dict, path: Path) -> None:
         "under Settings > Secrets, then reference it as "
         "'secret://<vault name>'."
     )
+
+
+#: The native Bedrock provider's credential-reference fields: each takes
+#: a ``secret://`` reference only, exactly like ``agent.meta_api_secret``.
+_BEDROCK_REF_FIELDS = (
+    "bedrock_access_key_id_ref",
+    "bedrock_secret_access_key_ref",
+    "bedrock_session_token_ref",
+)
+
+
+def _refuse_bedrock_refs_plaintext(data: dict, path: Path) -> None:
+    """Refuse plaintext credential material under the Bedrock ref fields.
+
+    Each of ``agent.bedrock_access_key_id_ref``,
+    ``agent.bedrock_secret_access_key_ref`` and
+    ``agent.bedrock_session_token_ref`` takes a ``secret://<vault
+    name>`` reference only (or is empty, deferring to the rest of the
+    AWS chain). Same doing-of-this-write semantics as
+    :func:`_refuse_meta_api_secret_plaintext`, applied per field: a
+    plaintext this write introduces is refused; one it leaves exactly
+    as found publishes with the field named on the log (never the
+    value), and the native provider still refuses it at start.
+    """
+    agent = data.get("agent") if isinstance(data, dict) else None
+    if not isinstance(agent, dict):
+        return
+    for key in _BEDROCK_REF_FIELDS:
+        value = agent.get(key)
+        if not _sections.bedrock_ref_plaintext(value):
+            continue
+        if _agent_key_on_disk(path, key) == value:
+            logger.warning(
+                "config.json already holds a literal value under "
+                "agent.%s; this write left that field as it found it. "
+                "That field takes a 'secret://<vault name>' reference "
+                "only, and a native Bedrock session is refused while it "
+                "stands: save the credential under Settings > Secrets, "
+                "then reference it as 'secret://<vault name>'.",
+                key,
+            )
+            continue
+        raise ConfigWriteRefused(
+            f"agent.{key} holds a literal value, so the config write "
+            "was refused: this field takes a 'secret://<vault name>' "
+            "reference only, and no AWS credential is ever stored in "
+            "config.json. Save the credential under Settings > Secrets, "
+            "then reference it as 'secret://<vault name>'."
+        )
 
 
 def _deepseek_env_on_disk(path: Path) -> object:
