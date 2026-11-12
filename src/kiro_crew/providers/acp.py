@@ -83,6 +83,7 @@ from kiro_crew.acp.types import (  # noqa: F401
     PROVIDER_LABEL_BY_BACKEND,
     PROVIDER_LABEL_CLAUDE,
     PROVIDER_LABEL_DEFAULT,
+    PROVIDER_LABEL_META_API,
     STOP_REASON_CANCELLED,
     STOP_REASON_END_TURN,
     effort_config_option_id,
@@ -1495,6 +1496,15 @@ def _provider_backend(provider: Any) -> Any:
     return None
 
 
+def _is_meta_api_provider(provider: Any) -> bool:
+    """Type check for the fork's native provider, kept lazy across the
+    providers package's import graph (the same pattern ``session.py`` uses
+    for its ACP type checks)."""
+    from kiro_crew.providers.meta_api import MetaApiProvider
+
+    return isinstance(provider, MetaApiProvider)
+
+
 def _provider_shape_backend(provider: Any) -> Any:
     """The backend of the two PROVIDER shapes, or ``None``.
 
@@ -1531,7 +1541,14 @@ def provider_label(provider: Any) -> str:
     shared subagent session. Missing either one persists a KAS session under
     the kiro label, and the map then prunes its id for want of a kiro
     transcript.
+
+    The fork's native Meta provider is answered first, by TYPE: it has no
+    ACP client whose backend string could be read, and letting it fall
+    through would persist a native session under the ACP label — the exact
+    misrouting ``PROVIDER_LABEL_META_API`` exists to prevent.
     """
+    if _is_meta_api_provider(provider):
+        return PROVIDER_LABEL_META_API
     backend = _provider_shape_backend(provider)
     if backend is None:
         return PROVIDER_LABEL_DEFAULT

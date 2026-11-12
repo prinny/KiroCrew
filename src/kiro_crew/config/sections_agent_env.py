@@ -47,6 +47,21 @@ def deepseek_env_plaintext_keys(raw: object) -> tuple[str, ...]:
     )
 
 
+def meta_api_secret_plaintext(raw: object) -> bool:
+    """Whether an ``agent.meta_api_secret`` value is a plaintext key.
+
+    The field holds ONE ``secret://<vault name>`` reference (or is empty,
+    which defers to the environment), never a key: the single-string
+    equivalent of :func:`deepseek_env_plaintext_keys`, enforced at WRITE
+    time by the publish floor in ``loader_document`` so a plaintext typed
+    into ``config set`` never reaches ``config.json``. The native provider
+    repeats the check at start and fails closed, as the second line for a
+    file edited by hand. Returns a bool only — never the value — because
+    the result is destined for an error message.
+    """
+    return isinstance(raw, str) and raw != "" and not raw.startswith(SECRET_URI_PREFIX)
+
+
 def coerce_deepseek_env(raw: object) -> dict[str, str]:
     """Normalize ``agent.deepseek_env`` to a plain env-var-name -> value mapping.
 

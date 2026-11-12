@@ -132,6 +132,7 @@ from kiro_crew.config.sections_agent_env import (  # noqa: F401
     coerce_deepseek_env,
     deepseek_env_plaintext_keys,
     merge_strands_env_patch,
+    meta_api_secret_plaintext,
     validate_strands_env_patch,
 )
 from kiro_crew.config.sections_agent_fields import (  # noqa: F401

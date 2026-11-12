@@ -449,6 +449,12 @@ KIRO_CLI_CLIENT_APPLICATION = "kirocrew"
 # An absent label means kiro-cli, which is the default backend.
 PROVIDER_LABEL_DEFAULT = "acp"
 PROVIDER_LABEL_CLAUDE = "claude_code"
+#: The session-map label of the native Meta Model API provider
+#: (``agent.provider = "meta_api"``). Not an ACP backend label: it exists so
+#: a native session is never persisted, resumed or cleaned up as an ACP
+#: session (harness-parity H11's closed mapping, extended by the fork's
+#: provider amendment).
+PROVIDER_LABEL_META_API = "meta_api"
 PROVIDER_LABEL_KAS = "kas"
 PROVIDER_LABEL_CODEX = "codex"
 PROVIDER_LABEL_OPENCODE = "opencode"

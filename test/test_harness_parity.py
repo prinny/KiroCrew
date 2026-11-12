@@ -135,13 +135,27 @@ def test_kiro_is_always_selectable() -> None:
 
 
 def test_provider_enum_is_acp_only() -> None:
-    """H2: a harness is chosen at ``acp_backend``, never as a second provider.
+    """H2, as amended by the fork's boundary extension: a harness is chosen
+    at ``acp_backend``, never as a second provider.
 
-    A second ``agent.provider`` value would build its factory outside
-    ``create_provider_factory`` and route around every invariant below it.
+    Upstream's pin was ``["acp"]``. This fork admits exactly one more
+    value, ``"meta_api"`` — a first-party native provider, not a harness —
+    under the boundary amendment in ``oss-fork-boundaries.md``. The
+    invariant's substance is unchanged and still pinned here: ``"acp"``
+    stays first and default, no third value exists, and the second value's
+    factory is built INSIDE ``create_provider_factory`` (the dispatch on
+    ``provider_identity.is_meta_api``), never outside it, so it cannot
+    route around the invariants below.
     """
-    assert _field_enum("provider") == ["acp"]
+    assert _field_enum("provider") == ["acp", "meta_api"]
     assert _field_default("provider") == "acp"
+    import inspect
+
+    from kiro_crew.config import loader_config
+
+    factory_source = inspect.getsource(loader_config.KiroCrewConfig.create_provider_factory)
+    assert "is_meta_api" in factory_source
+    assert "_create_meta_api_provider_factory" in factory_source
 
 
 @pytest.mark.parametrize("persisted", ["", "kas", "byo-harness", "claude", None, 7])

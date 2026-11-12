@@ -498,6 +498,49 @@ def _doctor_lts_sign_in(issues: list[str]) -> None:
         issues.append(f"LTS sign-in: {line[2:].strip()}")
 
 
+def _doctor_meta_api(cfg: KiroCrewConfig, issues: list[str]) -> None:
+    """Native Meta Model API provider row — printed only when selected.
+
+    Parity with the ACP backend rows: when ``agent.provider`` selects the
+    native provider, the doctor verifies the two things a session needs
+    before its first prompt — a ``codex`` binary on PATH (the pinned loop)
+    and the credential plus models endpoint, via the same test-connection
+    check the dashboard route runs. When the provider is not selected the
+    row is silent: an unconfigured native provider is not an error, and a
+    native configuration is never reported as one merely for existing.
+    """
+    import shutil
+
+    from kiro_crew.agent_sdk.provider_identity import is_meta_api
+
+    if not is_meta_api(cfg.agent.provider):
+        return
+    from kiro_crew.providers.meta_api import (
+        DEFAULT_BASE_URL,
+        resolve_meta_api_key,
+        test_connection,
+    )
+
+    if shutil.which("codex") is None:
+        print("  meta api:    ❌ codex binary not found on PATH (the native provider's loop)")
+        issues.append("meta api: codex binary missing")
+        return
+    key, _source = resolve_meta_api_key(cfg.agent.meta_api_secret)
+    if not key:
+        print("  meta api:    ❌ no credential resolves (secret:// reference or MODEL_API_KEY)")
+        issues.append("meta api: no credential resolves")
+        return
+    report = test_connection(cfg.agent.meta_api_base_url or DEFAULT_BASE_URL, key)
+    if report.ok:
+        print(
+            f"  meta api:    ✅ {len(report.model_ids)} models reachable "
+            f"({report.latency_ms:.0f} ms)"
+        )
+    else:
+        print(f"  meta api:    ❌ models endpoint check failed: {report.error_class}")
+        issues.append(f"meta api: models endpoint {report.error_class}")
+
+
 def _selected_roles_run_kiro_cli(cfg: KiroCrewConfig) -> tuple[bool, bool]:
     """Which selected roles spawn kiro-cli: ``(kiro_role, relay_kas_role)``.
 
@@ -868,6 +911,9 @@ def _doctor(platform_boot_error: "Exception | None" = None, bundle: bool = False
 
     # ── KAS backend (only when selected) ──
     _doctor_kas(issues)
+
+    # ── Native Meta Model API provider (only when selected) ──
+    _doctor_meta_api(cfg, issues)
 
     # ── Pods (systemd --user session bus) ──
     services._doctor_pod_session_bus(issues)

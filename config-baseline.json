@@ -25,6 +25,9 @@
         "refusal_fallback_model": "",
         "reasoning_effort": "",
         "provider": "acp",
+        "meta_api_secret": "secret://MODEL_API_KEY",
+        "meta_api_base_url": "",
+        "meta_api_monthly_budget_usd": 0.0,
         "mcp_registry_mode": false,
         "mcp_quarantine_after_failures": 3,
         "acp_backend": "kas",
@@ -352,12 +355,55 @@
       "sensitive": false,
       "tags": [],
       "label": "Provider",
-      "help": "LLM provider backend (KiroACP / kiro-cli).",
+      "help": "Which provider runs sessions. 'acp' (the default) drives an ACP harness selected at agent.acp_backend. 'meta_api' selects this fork's native Meta Model API provider: Muse models over the Responses API, billed per token at the published rates, with the reduced capability set documented in docs/system-specs/modules/providers.md.",
       "hasChildren": false,
       "enumValues": [
-        "acp"
+        "acp",
+        "meta_api"
       ],
       "defaultValue": "acp"
+    },
+    {
+      "path": "agent.meta_api_secret",
+      "kind": "core",
+      "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "label": "Meta Model API Secret",
+      "help": "Reference to the Meta Model API key for the native provider, as a 'secret://<vault name>' reference into Settings > Secrets (default 'secret://MODEL_API_KEY'). Plaintext is refused at config write: a key never lands in config.json. Read only when agent.provider is 'meta_api'.",
+      "hasChildren": false,
+      "enumValues": null,
+      "defaultValue": "secret://MODEL_API_KEY"
+    },
+    {
+      "path": "agent.meta_api_base_url",
+      "kind": "core",
+      "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "label": "Meta Model API Base URL",
+      "help": "Base URL override for the Meta Model API. Empty uses the published endpoint (https://api.meta.ai/v1). Read only when agent.provider is 'meta_api'.",
+      "hasChildren": false,
+      "enumValues": null,
+      "defaultValue": ""
+    },
+    {
+      "path": "agent.meta_api_monthly_budget_usd",
+      "kind": "core",
+      "type": "number",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "label": "Meta Model API Monthly Budget (USD)",
+      "help": "Optional monthly spend cap for native Meta provider sessions. When this month's recorded native spend reaches the cap, new native sessions refuse to start. 0 (the default) turns the guard off. Read only when agent.provider is 'meta_api'.",
+      "hasChildren": false,
+      "enumValues": null,
+      "defaultValue": 0.0
     },
     {
       "path": "agent.mcp_registry_mode",

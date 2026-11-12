@@ -28,6 +28,7 @@ from kiro_crew.dashboard.handlers.mcp_discover import (
     api_mcp_discover_detail,
     api_mcp_discover_install,
 )
+from kiro_crew.dashboard.handlers.meta_api import api_meta_api_test
 
 
 def register(app: web.Application) -> None:
@@ -49,6 +50,10 @@ def register(app: web.Application) -> None:
     # dropped first. A POST because it mutates spawn-path state: the GET above may
     # only report the divergence, which is what ``restart_required`` is for.
     app.router.add_post("/api/acp-backends/recheck", api_acp_backend_recheck)
+    # Native Meta Model API provider: test the configured credential against
+    # the models endpoint. Answers with the outcome class only — the key and
+    # the upstream body never cross the route (handlers/meta_api.py).
+    app.router.add_post("/api/meta-api/test", api_meta_api_test)
     app.router.add_get("/api/config/kirocrew", handlers.api_kirocrew_config)
     app.router.add_put("/api/config/kirocrew", handlers.api_kirocrew_config)
     app.router.add_patch("/api/config/kirocrew", handlers.api_kirocrew_config_patch)
