@@ -66,6 +66,7 @@ from kiro_crew.agent_sdk.backends import (
     ACP_BACKEND_CODEX,
     ACP_BACKEND_DEEPSEEK,
     ACP_BACKEND_LAUNCH,
+    ACP_BACKEND_OPENCODE,
     ACP_BACKEND_PI,
     ACP_BACKEND_STRANDS,
     Readback,
@@ -260,6 +261,7 @@ _DEEPSEEK_TOOLS_MODE = "native"
 #: control, made by the host, rather than a line in a driver's own declaration.
 ADAPTER_EXPOSED_CREDENTIAL_LEAVES: dict = {
     ACP_BACKEND_CODEX: (".aws/config",),
+    ACP_BACKEND_OPENCODE: (".aws/config",),
 }
 
 #: Re-exposed READ-ONLY for EVERY enforced harness, home-relative, beside the table
