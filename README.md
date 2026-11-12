@@ -44,6 +44,47 @@
   <a href="#docs-and-contributing">Docs</a>
 </p>
 
+## This Fork
+
+This repository is a fork of the upstream Kiro Crew project, maintained
+as a working fork with its own programme. Upstream is read-only here:
+nothing is pushed upstream, and upstream changes are adopted through
+reviewed sync work.
+
+The fork's programme has three parts:
+
+1. **Full Muse provider support** — Meta's models selectable at parity
+   with the existing backends, with any genuine capability difference
+   labelled openly: a Muse ACP backend
+   ([PR #33](https://github.com/prinny/KiroCrew/pull/33)) and a native
+   Meta Model API provider behind `agent.provider`
+   ([PR #32](https://github.com/prinny/KiroCrew/pull/32)), tracked in
+   [Issue #12](https://github.com/prinny/KiroCrew/issues/12).
+2. **Configurable models** — every model choice that is hardcoded
+   upstream becomes configuration, tracked in
+   [Issue #13](https://github.com/prinny/KiroCrew/issues/13).
+3. **Amazon Bedrock integration** — a native Bedrock provider tracked in
+   [Issue #35](https://github.com/prinny/KiroCrew/issues/35), with the
+   route evaluation and operator guide on the wiki.
+
+Where the documentation lives:
+
+- **Wiki** — https://github.com/prinny/KiroCrew/wiki — the programme's
+  documentation: roadmap, workflow, provider architecture, the
+  [Bedrock Options](https://github.com/prinny/KiroCrew/wiki/Bedrock-Options)
+  evaluation and the
+  [Bedrock Integration](https://github.com/prinny/KiroCrew/wiki/Bedrock-Integration)
+  guide.
+- **Issues** — the tracked work, one issue per workstream, with
+  acceptance criteria.
+- **Discussions** — design decisions and announcements, including the
+  [native Bedrock provider approach](https://github.com/prinny/KiroCrew/discussions/38).
+- **Pull requests** — every change arrives by branch and pull request;
+  nothing merges directly to the default branch.
+
+Everything below this section is the upstream project's own README,
+unchanged.
+
 ## Quick start
 
 You choose how to run Kiro Crew: the desktop app with automatic updates, a
