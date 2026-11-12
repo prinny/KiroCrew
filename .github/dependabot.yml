@@ -37,3 +37,20 @@ updates:
       default-days: 7
     labels:
       - "area: packaging"
+  # The website tree's own manifest. Until now this tree had no
+  # version-update stream: its dependency PRs arrived only as
+  # Dependabot security updates (the happy-dom bump in PR #25 came
+  # that way), so routine website bumps had no stream to arrive in
+  # and the dependency-review policy had nothing regular to attach
+  # to. Same weekly cadence and cooldown as the other npm entries,
+  # same reason: a just-published version should have had its week
+  # in the open first.
+  - package-ecosystem: "npm"
+    directory: "/website"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    labels:
+      - "dependencies"
+      - "javascript"
