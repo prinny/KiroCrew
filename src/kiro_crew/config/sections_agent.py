@@ -442,6 +442,36 @@ class AgentConfig:
             "key) and AWS_REGION mapped here. Ignored by every other backend.",
         ),
     )
+    opencode_env: dict[str, str] = field(
+        default_factory=dict,
+        metadata=_meta(
+            "OpenCode provider keys",
+            "Provider keys handed to the OpenCode harness ('opencode' backend) as "
+            "environment variables at spawn, mapping an environment-variable NAME "
+            "to a 'secret://<vault name>' reference, the same shape as "
+            "agent.deepseek_env. This is how a custom provider declared in "
+            "OpenCode's own configuration (a project's opencode.json, or the "
+            "operator's global OpenCode config) receives its key without the key "
+            "ever being written to a config file: interpolate the variable in the "
+            "provider's apiKey -- '{env:MODEL_API_KEY}' -- and map that name "
+            "here, e.g. '{\"MODEL_API_KEY\": \"secret://my-meta-key\"}' for the "
+            "Meta Model API. Store the key under Settings > Secrets first. A "
+            "plaintext value is REFUSED at write time -- the config write itself "
+            "fails, so no credential is ever stored in config.json -- and so, at "
+            "spawn, is a name in the harness's own OPENCODE_ namespace, a name "
+            "Kiro Crew owns, or one Kiro Crew's agent environment scrub strips; "
+            "the OpenCode session is refused before it starts with a message "
+            "naming the offending key. One difference from agent.deepseek_env: "
+            "the DeepSeek Harness withholds credential-named variables from the "
+            "shells it spawns, and OpenCode has no such verified behaviour, so a "
+            "key mapped here is present in the harness process's environment, "
+            "where the agent's own shell tool can read it -- map only keys you "
+            "accept that exposure for. Empty means no key: a model served "
+            "locally on this machine needs none, and a provider signed in "
+            "through 'opencode auth login' is unaffected. Ignored by every other "
+            "backend.",
+        ),
+    )
     strands_project: str = field(
         default="",
         metadata=_meta(
@@ -1628,6 +1658,9 @@ class AgentConfig:
         # The Strands map has the same shape and the same split: type here, names
         # at spawn (``acp.harness.strands``).
         self.strands_env = coerce_deepseek_env(self.strands_env)
+        # The OpenCode map has the same shape and the same split: type here,
+        # names at spawn (``acp.harness.opencode``).
+        self.opencode_env = coerce_deepseek_env(self.opencode_env)
         self.child_env_defaults = coerce_child_env_defaults(self.child_env_defaults)
         self.env = coerce_agent_env(self.env)
         # Same defensive coercion for the throttle-fallback model: normalize to

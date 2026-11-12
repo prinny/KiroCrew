@@ -802,6 +802,8 @@ def _agent_section_fields(agent_data: dict) -> AgentConfig:
         deepseek_env=_sections.coerce_deepseek_env(section.get("deepseek_env")),
         # The same type coercion: the Strands map has deepseek_env's shape.
         strands_env=_sections.coerce_deepseek_env(section.get("strands_env")),
+        # The same type coercion: the OpenCode map has deepseek_env's shape.
+        opencode_env=_sections.coerce_deepseek_env(section.get("opencode_env")),
         strands_project=_strands_str_or_empty(section.get("strands_project")),
         strands_project_sha256=_strands_str_or_empty(section.get("strands_project_sha256")),
         strands_provider=_strands_str_or_empty(section.get("strands_provider")),

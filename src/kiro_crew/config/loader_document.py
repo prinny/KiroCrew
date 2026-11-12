@@ -403,6 +403,7 @@ def _refuse_unpublishable(data: dict, path: Path) -> None:
     """
     _refuse_deepseek_env_plaintext(data, path)
     _refuse_vault_env_plaintext(data, path, "strands_env", "a Strands session")
+    _refuse_vault_env_plaintext(data, path, "opencode_env", "an OpenCode session")
     _refuse_agent_env_entries(data, path)
 
 
@@ -419,7 +420,8 @@ def _refuse_vault_env_plaintext(data: dict, path: Path, key: str, refused_sessio
     """Refuse a plaintext provider key under ``agent.<key>``.
 
     The rule every ``secret://``-only provider-key map shares
-    (``agent.deepseek_env``, ``agent.strands_env``); *refused_session* names the
+    (``agent.deepseek_env``, ``agent.strands_env``, ``agent.opencode_env``);
+    *refused_session* names the
     session the spawn-time validator refuses while a plaintext stands.
 
     That mapping takes ``secret://`` references only, and a plaintext that reaches

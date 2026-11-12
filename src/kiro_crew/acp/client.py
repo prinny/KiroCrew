@@ -791,6 +791,8 @@ _EXPORTS_BY_OWNER: dict[str, tuple[str, ...]] = {
         "MAX_HARNESS_CONFIG_MCP_SERVERS",
         "MAX_HARNESS_TOOL_NAME_LEN",
         "opencode_rewrites_name",
+        "_opencode_vault_env",
+        "_validate_opencode_env_mapping",
     ),
     "kiro_crew.acp.harness.goose": (
         "_ENV_GOOSE_MODE",
@@ -1022,6 +1024,8 @@ if TYPE_CHECKING:  # the forwarded names, visible to type checkers and IDEs
         _opencode_readback_remedy,
         _opencode_rules_deny,
         _opencode_uniform_permission,
+        _opencode_vault_env,
+        _validate_opencode_env_mapping,
         opencode_rewrites_name,
     )
     from kiro_crew.acp.harness.pi import (  # noqa: F401

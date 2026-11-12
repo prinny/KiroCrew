@@ -22,7 +22,8 @@ import logging
 import os
 import re
 import subprocess as subprocess_mod
-from typing import Any, Collection
+from pathlib import Path
+from typing import Any, Awaitable, Callable, Collection
 
 from kiro_crew import acp_tool_gate
 from kiro_crew.acp import launch as launch_mod
@@ -34,7 +35,16 @@ from kiro_crew.acp.harness_tool_names import (
 )
 from kiro_crew.acp.transport_errors import AcpToolGateUnroutable
 from kiro_crew.agent_sdk.backends import ACP_BACKEND_OPENCODE, launch_for
-from kiro_crew.sandbox import scrub_agent_subprocess_env, wrap_argv, wrap_argv_async
+from kiro_crew.config.paths import config_dir
+from kiro_crew.config.sections import AGENT_ENV_NAME_GRAMMAR
+from kiro_crew.mcp_gateway.claim import STUB_SESSION_TOKEN_ENV
+from kiro_crew.mcp_gateway.secret_uri import SECRET_URI_PREFIX, resolve_secret_uris
+from kiro_crew.sandbox import (
+    agent_env_scrub_prefixes,
+    scrub_agent_subprocess_env,
+    wrap_argv,
+    wrap_argv_async,
+)
 
 # The client's logger name: these lines have always been filed under it.
 logger = logging.getLogger("kiro_crew.acp.client")
@@ -790,6 +800,166 @@ def refuse_native_mount_of_unhonoured(session: ProcessSession) -> None:
         raise AcpToolGateUnroutable(str(exc)) from None
 
 
+# ── ``agent.opencode_env``: provider keys from Crew's vault ──
+#
+# The reference grammar a mapped name must match: a POSIX shell identifier, the
+# name shape OpenCode's config interpolation (``{env:...}``) can read, and the
+# same grammar ``agent.deepseek_env`` uses (``AGENT_ENV_NAME_GRAMMAR``). Matched
+# with ``fullmatch`` rather than a ``$``-anchored pattern, which in Python would
+# also accept a trailing newline -- and a name with one is not the variable the
+# operator wrote.
+_OPENCODE_ENV_NAME_GRAMMAR = AGENT_ENV_NAME_GRAMMAR
+
+# Namespaces on this child that a provider-key mapping may not enter: the
+# harness's own, which carries Crew's routing seed (``OPENCODE_CONFIG_CONTENT``)
+# and the config-file pointers (``OPENCODE_CONFIG``/``OPENCODE_CONFIG_DIR``) that
+# would hand the harness a config of the writer's choosing, and Crew's own, which
+# carries this session's IDENTITY -- ``KIROCREW_SESSION_KEY`` and the signed stub
+# token (``STUB_SESSION_TOKEN_ENV``) are written by
+# ``_apply_session_identity_env`` AFTER the provider key is placed, so a mapping
+# onto either name would be overwritten by a live Crew credential and the
+# harness would present THAT to its provider. A prefix rather than a list,
+# because both namespaces grow.
+_OPENCODE_ENV_RESERVED_PREFIXES = ("OPENCODE_", "KIROCREW_")
+
+# Names outside those namespaces that Crew still sets on this harness's child,
+# listed rather than derived because each is set at a different site and a
+# derivation would have to reach all of them: kiro-cli's own model credential
+# (actively stripped for a foreign backend, and named here so a mapping cannot
+# resurrect it ahead of the strip), the runtime's Python pin and session key
+# (both also in the reserved namespace; kept as documentation of the sites), and
+# the data-home override the credential floor re-anchors this harness's
+# credential leaf under (``agent_sdk.host_auth``) -- a mapped value there would
+# be replaced by the floor's own write and the key lost without a word.
+_OPENCODE_ENV_CREW_OWNED_NAMES = frozenset(
+    {
+        _ENV_OPENCODE_CONFIG_CONTENT,
+        "KIRO_API_KEY",
+        "KIROCREW_RUNTIME_PYTHON",
+        "KIROCREW_SESSION_KEY",
+        STUB_SESSION_TOKEN_ENV,
+        "XDG_DATA_HOME",
+    }
+)
+
+
+def _validate_opencode_env_mapping(mapping: dict[str, str]) -> None:
+    """Refuse every ``agent.opencode_env`` entry this harness would not honour.
+
+    Raises :exc:`ValueError` whose message is operator-readable and names ONLY
+    the env-var KEY -- never the secret's vault name and never its value. That
+    is the same rule :mod:`kiro_crew.mcp_gateway.secret_uri` states for its own
+    refusals, and it is what lets this message reach a log and a chat error
+    card unsanitised: the key is operator-declared config, and ``!r`` escapes
+    any control character in it, so a hostile name has no text to forge.
+
+    Each rule refuses a mapping that would FAIL SILENTLY rather than one that
+    is merely unusual, which is why they are refusals and not warnings:
+
+    * a plaintext value would put a live provider key in ``config.json``, which
+      this whole route exists to avoid -- the key belongs in the vault;
+    * a name outside the POSIX-identifier grammar is not a variable the
+      harness's ``{env:...}`` config interpolation can resolve at all;
+    * an ``OPENCODE_``-prefixed name is the harness's reserved namespace and a
+      ``KIROCREW_``-prefixed one is Crew's -- it carries this session's
+      identity credentials, which are written onto the child AFTER the
+      provider key and would replace it, handing the harness's provider a live
+      Crew credential -- and a name Crew otherwise writes on this child
+      (:data:`_OPENCODE_ENV_CREW_OWNED_NAMES`) would either lose the operator's
+      key or overwrite the gate's own variables, depending on which write
+      landed last;
+    * a name Crew's own agent environment scrub strips
+      (:func:`kiro_crew.sandbox.agent_env_scrub_prefixes`) would be removed on
+      the shared spawn tail AFTER this injection, so the harness would start
+      with no key and nothing would say why.
+
+    One rule ``agent.deepseek_env`` has is deliberately ABSENT here. The
+    DeepSeek validator also refuses names outside the class that harness
+    withholds from its own shell children, because that withholding is a
+    verified property of the DeepSeek Harness, proved at every spawn. OpenCode
+    has no verified equivalent -- nothing measured says it keeps a
+    credential-named variable out of the shells it spawns -- so no name class
+    can promise that protection on this backend, and a validator inventing
+    the rule would assert a property nobody checked. The exposure is stated
+    where the operator decides instead: the ``agent.opencode_env`` field's own
+    documentation says a mapped key sits in the harness process's environment,
+    readable by the agent's own shell tool, and the operator maps only keys
+    they accept that for.
+    """
+    scrub_prefixes = agent_env_scrub_prefixes()
+    for key, value in mapping.items():
+        if not value.startswith(SECRET_URI_PREFIX):
+            raise ValueError(
+                f"agent.opencode_env entry {key!r} holds a literal value. This "
+                f"mapping takes a '{SECRET_URI_PREFIX}<vault name>' reference only, "
+                "so a provider key is never stored in config.json. Save the key "
+                "under Settings > Secrets, then map it as "
+                f"'{SECRET_URI_PREFIX}<vault name>'."
+            )
+        if not _OPENCODE_ENV_NAME_GRAMMAR.fullmatch(key):
+            raise ValueError(
+                f"agent.opencode_env entry {key!r} is not an environment-variable "
+                "name the harness can resolve: its config interpolation reads "
+                "POSIX shell identifiers, matching [A-Za-z_][A-Za-z0-9_]*."
+            )
+        # Windows compares env names case-insensitively: judge the name as it does.
+        held = key.upper() if os.name == "nt" else key
+        if (
+            held.startswith(_OPENCODE_ENV_RESERVED_PREFIXES)
+            or held in _OPENCODE_ENV_CREW_OWNED_NAMES
+        ):
+            raise ValueError(
+                f"agent.opencode_env entry {key!r} names a variable Kiro Crew or "
+                "the harness sets on this child itself (the OPENCODE_ and "
+                "KIROCREW_ namespaces, and Kiro Crew's own session credentials), "
+                "so the mapping would either lose the key, overwrite the tool "
+                "gate's own value, or hand the harness's provider a Kiro Crew "
+                "credential. Choose a provider credential name instead, such as "
+                "MODEL_API_KEY."
+            )
+        if any(key.startswith(prefix) for prefix in scrub_prefixes):
+            raise ValueError(
+                f"agent.opencode_env entry {key!r} matches a name prefix Kiro "
+                "Crew's own agent environment scrub removes before the child "
+                "starts, so the injection would be undone and the harness would "
+                "start with no key. Choose a provider credential name outside "
+                "that set."
+            )
+
+
+def _opencode_vault_env() -> tuple[dict[str, str], tuple[str, ...]]:
+    """``agent.opencode_env`` validated and resolved into child env vars.
+
+    Returns ``(env, secret_keys)``: the variables to place on the harness's
+    child, and the keys now holding PLAINTEXT. The contract
+    :func:`kiro_crew.mcp_gateway.secret_uri.resolve_secret_uris` states -- clear
+    the plaintext from the returned dict as soon as nothing needs it from
+    there -- is honoured by the opencode spawn arm, which empties the dict the
+    moment its entries are copied onto the child's env, inside the arm rather
+    than on the shared post-spawn path (harness-parity H13).
+
+    Every failure is a :exc:`ValueError`, from this module's validator or from
+    the resolver's own fail-closed refusals (a malformed reference, a secret
+    absent from the vault). One exception type, because the caller does the
+    same thing with both: refuse the session rather than start a harness that
+    cannot reach a model.
+
+    Blocking: reads the config file and the vault, so it runs off the event
+    loop. Config is imported lazily for this module's usual reason --
+    ``config.loader`` reaches this module through ``acp.session_handle``.
+    """
+    from kiro_crew.config.loader import KiroCrewConfig
+
+    mapping = dict(KiroCrewConfig.load().agent.opencode_env)
+    if not mapping:
+        return {}, ()
+    _validate_opencode_env_mapping(mapping)
+    resolved, secret_keys = resolve_secret_uris(
+        mapping, Path(config_dir()), subject="agent.opencode_env"
+    )
+    return resolved, tuple(sorted(secret_keys))
+
+
 class OpencodeLaunch(ProcessAdapter):
     """OpenCode: a self-served binary whose asking posture is seeded and read back."""
 
@@ -939,3 +1109,50 @@ class OpencodeLaunch(ProcessAdapter):
         """
         if self._config_content:
             env[_ENV_OPENCODE_CONFIG_CONTENT] = self._config_content
+
+    async def prepare_spawn_env(
+        self,
+        env: dict[str, str],
+        *,
+        to_thread: Callable[..., Awaitable[Any]],
+    ) -> None:
+        """The routing seed, then the provider keys from Crew's own vault.
+
+        ``agent.opencode_env`` is resolved and placed on the child's environment
+        here, before session identity, credential repair and the scrub -- the
+        same placement the DeepSeek and Strands arms use, and exactly why the
+        validator refuses a name that scrub would strip: a key injected here
+        and removed there would leave the operator with a harness that cannot
+        reach a model and no error naming why. Off-loop through the guarded
+        hop: it reads config.json and the vault while the sandbox launcher is
+        live.
+        """
+        self.apply_spawn_env(env)
+        try:
+            opencode_env, _ = await to_thread(_opencode_vault_env)
+        except ValueError as exc:
+            # Fail CLOSED on a mapping this harness would not honour, or a vault
+            # secret that is not there. The message names only the operator's
+            # own env-var key -- never the vault name and never the value -- so
+            # it is safe on the log and in the chat error card.
+            try:
+                acp_tool_gate.enforce_runtime_routing(
+                    self.backend,
+                    str(exc),
+                    remedy=acp_tool_gate.remediation_for(self.backend),
+                )
+            except acp_tool_gate.ToolGateUnroutable as gate_exc:
+                raise AcpToolGateUnroutable(str(gate_exc)) from None
+            # Unreachable while this harness is ENFORCED; kept as the
+            # fail-closed floor for the same reason the launch's own refusals
+            # keep theirs.
+            raise AcpToolGateUnroutable(str(exc)) from None
+        env.update(opencode_env)
+        # The resolver's contract -- clear the PLAINTEXT it returned as soon as
+        # nothing needs it from that dict -- is honoured HERE. Copying onto
+        # ``env`` is the last read of the resolver's dict, so it is emptied
+        # now; ``env`` itself is the dict ``exec`` copies into the child and is
+        # a local of the launch, never written to the gateway's ``os.environ``
+        # and never stored on the session, so its plaintext lives exactly as
+        # long as that frame.
+        opencode_env.clear()
