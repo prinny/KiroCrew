@@ -199,7 +199,46 @@ class AgentConfig:
     )
     provider: str = field(
         default="acp",
-        metadata=_meta("Provider", "LLM provider backend (KiroACP / kiro-cli).", enum=["acp"]),
+        metadata=_meta(
+            "Provider",
+            "Which provider runs sessions. 'acp' (the default) drives an ACP "
+            "harness selected at agent.acp_backend. 'meta_api' selects this "
+            "fork's native Meta Model API provider: Muse models over the "
+            "Responses API, billed per token at the published rates, with "
+            "the reduced capability set documented in "
+            "docs/system-specs/modules/providers.md.",
+            enum=["acp", "meta_api"],
+        ),
+    )
+    meta_api_secret: str = field(
+        default="secret://MODEL_API_KEY",
+        metadata=_meta(
+            "Meta Model API Secret",
+            "Reference to the Meta Model API key for the native provider, "
+            "as a 'secret://<vault name>' reference into Settings > Secrets "
+            "(default 'secret://MODEL_API_KEY'). Plaintext is refused at "
+            "config write: a key never lands in config.json. Read only when "
+            "agent.provider is 'meta_api'.",
+        ),
+    )
+    meta_api_base_url: str = field(
+        default="",
+        metadata=_meta(
+            "Meta Model API Base URL",
+            "Base URL override for the Meta Model API. Empty uses the "
+            "published endpoint (https://api.meta.ai/v1). Read only when "
+            "agent.provider is 'meta_api'.",
+        ),
+    )
+    meta_api_monthly_budget_usd: float = field(
+        default=0.0,
+        metadata=_meta(
+            "Meta Model API Monthly Budget (USD)",
+            "Optional monthly spend cap for native Meta provider sessions. "
+            "When this month's recorded native spend reaches the cap, new "
+            "native sessions refuse to start. 0 (the default) turns the "
+            "guard off. Read only when agent.provider is 'meta_api'.",
+        ),
     )
     mcp_registry_mode: bool = field(
         default=False,

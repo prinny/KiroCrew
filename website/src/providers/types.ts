@@ -1,7 +1,7 @@
-// KiroCrew is KiroACP-only — kiro-cli over ACP is the sole provider. This is a
-// single-member union so the adapter interface below still type-checks for its
-// many consumers.
-export type ProviderId = 'acp'
+// The provider axis: 'acp' (kiro-cli over ACP, the default) or this fork's
+// native Meta Model API provider ('meta_api'). The adapter interface below
+// type-checks for its many consumers against either member.
+export type ProviderId = 'acp' | 'meta_api'
 
 export interface ProviderCapabilities {
   hooks: boolean

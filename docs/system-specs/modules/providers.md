@@ -1,13 +1,16 @@
 # LLM Provider Abstraction
 
 Kiro Crew drives every LLM through one seam: the `LLMProvider` ABC in
-`providers/base.py`. `AcpProvider` (`providers/acp.py`) is the only implementation
-the factory selects; `AcpSessionProvider` (`acp/session_provider.py`) is a second
+`providers/base.py`. `AcpProvider` (`providers/acp.py`) is the implementation
+the factory selects by default; `AcpSessionProvider` (`acp/session_provider.py`) is a second
 concrete subclass, the adapter a shared-runtime session is swapped onto once
-`AcpRuntime` is up.
-`agent.provider` is fixed to `"acp"` (enum `["acp"]`) — the provider is not the
-harness selector. **Which harness that one provider drives is a separate
-decision, taken from `agent_sdk/backends.py`**: `agent.acp_backend` names a backend id
+`AcpRuntime` is up. This fork adds one more implementation behind the same
+ABC: `MetaApiProvider` (below), selected by `agent.provider = "meta_api"`
+under the boundary amendment in
+[oss-fork-boundaries.md](../oss-fork-boundaries.md).
+`agent.provider` is `enum ["acp", "meta_api"]` with `"acp"` the default —
+the provider is not the harness selector. **Which harness the ACP provider
+drives is a separate decision, taken from `agent_sdk/backends.py`**: `agent.acp_backend` names a backend id
 and `BASELINE_SELECTABLE_BACKENDS` decides which ids an operator may choose.
 Several are selectable on a plain public build, so "one provider" never meant
 "one backend".
@@ -1440,6 +1443,117 @@ in [agent-host-contract.md](agent-host-contract.md).
 - **Resume guard:** `session/load` (resume) is only attempted when Tool Search is disabled and the prior session transcript exists on disk (`~/.kiro/sessions/cli/<sid>.json`). A stale persisted sid with no transcript falls back to `session/new`, preventing a fresh conversation from replaying old turns (which inflated base context).
 - **Working dir:** `AcpProvider.cwd` overrides the `LLMProvider` ABC default so `session_map` persists the real workspace path. AcpProvider's work_dir lives on the inner client (`_client._work_dir`), so a consumer reading `_work_dir` off the provider gets `""` for every ACP session; `provider.cwd` is the member to read. It reports the directory THIS session was bound to, not the runtime's: `AcpRuntime` records `bound_cwd` on the `AcpSessionHandle` at `session/new` and `session/load`, `AcpSessionProvider.cwd` reads it off the handle, and `AcpProvider.cwd` forwards that, falling back to `_client._work_dir` only before startup, on a raw `AcpClient`, or for a handle with no recorded directory. A shared runtime hosts sessions opened against different projects, so the runtime's own directory would make reuse validation evict a live session that bound elsewhere.
 
+## MetaApiProvider (`providers/meta_api.py`) — this fork's native provider
+
+Selected by `agent.provider = "meta_api"` under the boundary amendment in
+[oss-fork-boundaries.md](../oss-fork-boundaries.md). It serves Muse models
+from the Meta Model API directly: no ACP, no harness. The agent loop is the
+Codex app-server (the `codex` binary's `app-server` mode) supervised over
+stdio JSON-RPC, with a forced custom model provider pointed at Meta's
+Responses endpoint (`https://api.meta.ai/v1`). OpenAI labels the app-server
+**[experimental]** — "not supported for production workloads" in its own
+help output — so the provider pins the binary (`codex` 0.167.2), refuses to
+start on a schema-fingerprint mismatch, and records its protocol fixtures
+so a pin bump re-validates the translation before it ships.
+
+Four modules, one responsibility each:
+
+- `meta_api_client.py` — the app-server JSON-RPC client: spawn (forced
+  config as `-c` overrides, never config files), `initialize`, the
+  schema-fingerprint check, and the §2.4 read-back below. This is the seam
+  a future Crew-owned loop would replace.
+- `meta_api_events.py` — pure translation of one turn's app-server frames
+  to `AcpEvent`s (same shapes the ACP provider emits, so dashboard and
+  chat render native turns identically).
+- `meta_api_models.py` — the model catalogue: the static registry below,
+  merged with a `GET /v1/models` refresh (API-only ids appended; an
+  unreachable API changes nothing).
+- `meta_api_rates.py` — the published rate card as dated data
+  (`RATES_AS_OF`); the only place cost math lives.
+
+**Gate parity (§2.4 protocol).** The provider's config is forced at spawn —
+`model_provider`, `base_url`, `env_key=MODEL_API_KEY`, `wire_api="responses"`,
+`requires_openai_auth=false`, `approval_policy=on-request`, and the sandbox
+mode mapped from `agent.sandbox` — then read back with `config/read` and
+compared key-by-key before the session starts; a mismatch refuses the
+session. Tool calls surface as app-server approval requests, which become
+Crew permission requests: nothing executes unapproved (pinned by the P-1
+integration test: unanswered or declined, the command's effect never
+happens). The declared limit: the loop process has no per-call Crew
+PreToolUse hook inside it; Crew's enforcement is the approval gate plus the
+forced configuration, and MCP servers reached through Crew's gateway keep
+the gateway's own enforcement.
+
+**Credentials.** `agent.meta_api_secret` holds a `secret://` reference
+(default `secret://MODEL_API_KEY`), resolved through the existing vault
+machinery; the `MODEL_API_KEY` environment variable is the fallback; a
+plaintext value in configuration is refused at write time
+(`meta_api_secret_plaintext` in the write floor) and never used. The key
+reaches the loop only as the environment variable its forced `env_key`
+names — never argv, never a config file, never a log line. The dashboard's
+`POST /api/meta-api/test` and the doctor's meta-api row run the same
+resolution plus a `GET /v1/models` probe and report the outcome class only.
+
+**Catalogue and cost.** Static registry: `muse-spark-1.3` (Standard,
+the `"auto"` default), `muse-spark-1.3-contributor` (annotated in the
+picker: it grants the operator training rights; never a default, never a
+fallback), `muse-wonder-1.0`, `muse-ember-1.0` — all with the published
+1,048,576-token window. The loop's own `model/list` never carries Muse ids
+(probe P-6), so this catalogue is the only one the picker reads. Every
+completed turn installs a fresh billing object whose `cost_usd` is the
+turn's per-call usage priced by the rate card (Ember's whole-request step
+past 200k input tokens included). An optional monthly budget guard
+(`agent.meta_api_monthly_budget_usd`, default 0 = off) refuses new
+sessions at the cap; because the metrics pipeline is emit-only, the guard
+keeps a provider-owned ledger at `<data home>/meta_api_spend.json`.
+
+**Declared reduced capability set.** Deliberate values, pinned by the
+contract suite: identity is positive (`is_meta_api_backend`, provider label
+`meta_api`, `context_provider_type = "meta_api"`); steering is off
+(`supports_steer` and `supports_refusal_steer` both False — the protocol's
+`turn/steer` is enabled only when its parity test passes); no background
+launch (`background_launch()` returns None); approvals are not
+withdrawable; a turn does not survive disconnect; MCP config is spawn-time
+only (all three reload properties False, with a real `mcp_session_report()`
+built from the loop's startup-status notifications). Compaction is
+self-managed and the explicit path is served
+(`manual_compact_unsupported_backend` is None — parity-tested against the
+pinned binary). Member and worker sessions are refused by the factory: the
+provider cannot honour the crewmate kit, so bots stay on ACP.
+
+**Declared limits (evidence, not aspiration).**
+
+- *Refusals are not surfaced.* On the pinned binary, a Responses `refusal`
+  content part reaches the client as an empty completed message; the
+  provider fabricates no `RefusalInfo`. An API-side refusal returned as an
+  error takes the turn-failed path instead.
+- *MCP tool calls by the model are not verified.* Operator MCP servers
+  (the global and workspace `mcp.json` files) are passed at spawn, launch,
+  and report their startup state truthfully; but with the loop's fallback
+  metadata for an unknown model id, the app-server offered the model no
+  function tools in the recorded probe, so a model→MCP call is unverified
+  in this build. Crew-managed gateway servers are not routed into native
+  sessions in v1.
+- *Context window after a turn* comes from the catalogue, not the loop:
+  the app-server reports fallback metadata (258,400) for unknown models in
+  its usage frames.
+
+**Parity checklist** (re-run at every pin bump of the app-server or the
+catalogue):
+
+| # | Parity property | Pinned by |
+|---|---|---|
+| 1 | Tool calls cannot execute unapproved; forced config verified before the first prompt | integration P-1 (`test_meta_api_integration.py`) |
+| 2 | Identity is positive (`is_meta_api_backend`), never "not ACP" | contract suite + the H14 pattern in `test_harness_parity.py` |
+| 3 | No hardcoded model id as a provider default; `"auto"` resolves through the catalogue | models unit tests + the repo's added-line model-literal gate |
+| 4 | Default provider unchanged; ACP sessions behaviourally identical | the ACP scoped suites, baseline-compared |
+| 5 | Every H14 capability property returns a deliberate value | contract suite (`test_capability_declarations_are_deliberate`) |
+| 6 | Permission prompts carry the same `AcpEvent` shape as ACP | golden fixtures (`test_meta_api_events.py`) |
+| 7 | Steering, if enabled, is interruptible with declared loss behaviour | not enabled in v1 (`supports_steer` False); no test until it is |
+| 8 | Compaction never strands a caller: the explicit path works | integration compact test + contract suite |
+| 9 | Per-turn billing object identity: a different object per turn | contract suite |
+| 10 | A native session's files/journal are never routed to ACP cleanup or resume (own provider label) | `provider_label` unit coverage + contract cleanup test |
+
 ## Config (`config/loader.py`)
 
 ```json
@@ -1451,9 +1565,9 @@ in [agent-host-contract.md](agent-host-contract.md).
 }
 ```
 
-- `agent.provider` is fixed to `"acp"` (enum `["acp"]`); the provider is not a choice.
+- `agent.provider` is `enum ["acp", "meta_api"]`, default `"acp"`: `"acp"` selects the ACP provider (the floor every other value degrades toward at load); `"meta_api"` selects this fork's native Meta Model API provider (see `MetaApiProvider` below and the boundary amendment in [oss-fork-boundaries.md](../oss-fork-boundaries.md)). It is a provider choice, never a harness choice.
 - `agent.acp_backend` is the harness choice, resolved through `agent_sdk.backends.resolve_selected_backend` (the top-level `acp_backends` module is a re-export shim kept for existing call sites). A stored Kiro CLI pick (`"kiro"`) resolves to KAS once the gateway confirmed the host's kiro-cli offers v3 and while KAS is selectable, so the factory builds a KAS provider for it with KAS's launch, projection, permissions and compaction; it builds the Kiro CLI provider without that confirmation ([harness-parity](harness-parity.md) H1). The Kiro CLI provider, its skill-view aliases and the `cli.json` overlay stay for that case.
-- `create_provider_factory()` returns a `Callable` that builds an `AcpProvider` for the resolved backend.
+- `create_provider_factory()` dispatches on `agent.provider`: `"meta_api"` builds a `MetaApiProvider` through `_create_meta_api_provider_factory` (which refuses member/worker sessions); `"acp"` builds an `AcpProvider` for the resolved backend; any other value fails closed.
 
 An agent spec's model is consumed by kiro-cli before Kiro Crew reaches
 `session/new`, so the live-session entitlement guard cannot diagnose a wrong

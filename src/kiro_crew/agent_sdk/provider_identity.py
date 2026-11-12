@@ -55,8 +55,23 @@ from __future__ import annotations
 PROVIDER_CLAUDE_CODE = "claude_code"
 
 #: ``agent.provider`` value selecting the ACP family (kiro-cli and KAS). The
-#: default, and the only value the public build's config schema accepts.
+#: default, and the floor every other value degrades toward.
 PROVIDER_ACP = "acp"
+
+#: ``agent.provider`` value selecting the native Meta Model API provider
+#: (``providers.meta_api.MetaApiProvider``). This fork's one extension of the
+#: provider axis, recorded in ``docs/system-specs/oss-fork-boundaries.md``;
+#: ``"acp"`` remains the default and the floor.
+PROVIDER_META_API = "meta_api"
+
+
+def is_meta_api(provider: str | None) -> bool:
+    """Whether *provider* names the native Meta Model API provider.
+
+    A missing or empty value is NOT the native provider: absent config
+    means the default provider (ACP), so this answers False.
+    """
+    return provider == PROVIDER_META_API
 
 
 def is_claude_code(provider: str | None) -> bool:
