@@ -13,20 +13,24 @@ machines rather than by prose.
   scope against the old and new versions and against this project's own
   configuration, runs the affected test scope with controls, and
   generates the evidence.
-- The **evidence** lives on this repository's **wiki**: one page per
-  validated PR head, titled with the repository, PR number and head SHA.
-  Each page carries a verdict table and, per claim, the captured output
-  the claim rests on.
+- The **evidence** lives on this repository's **wiki**, organised as a
+  hierarchy: an `Evidence` index page, one subject page per pull request
+  (`Evidence-PR-<number>`, stable across heads), and subpages per claim
+  group carrying, per claim, the captured output the claim rests on. The
+  subject page carries the header (including the exact head SHA
+  validated), the verdict table, and a SHA-256 pin for each subpage.
 - The pipeline posts a compact **evidence comment** on the PR: a verdict
-  table whose rows link to the per-claim sections of the evidence page.
-  Both the comment and the page carry a verification marker — an opaque
-  run reference, the head SHA they cover, a clean / not-clean result, and
-  a digest of the content.
+  table whose rows link to the per-claim sections of the evidence
+  subpages. Both the comment and the subject page carry a verification
+  marker — an opaque run reference, the head SHA they cover, a clean /
+  not-clean result, and a digest of the content.
 - The **`review-gate` check** (`.github/workflows/review-gate.yml`,
   `scripts/review-pipeline/check-evidence.mjs`) runs on every pull
-  request and fails unless the evidence comment exists for the PR's
-  current head, its marker verifies, and the linked evidence page
-  resolves and carries a matching marker for the same head. It is a
+  request and fails unless the pipeline's own evidence comment exists
+  for the PR's current head, its marker verifies, and the linked
+  evidence page resolves and carries a matching marker for the same
+  head. The comment must be posted by the account the pipeline posts
+  as; a marker comment from any other account is ignored. It is a
   required status check on `main`.
 
 ## Running it as a maintainer
