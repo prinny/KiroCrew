@@ -416,6 +416,19 @@ ACP_BACKEND_DEEPSEEK = "deepseek"
 # (``test/fixtures/acp_frames/copilot/``). Its ``allow_all`` option and its
 # ``session/request_permission`` per tool call are wire facts of that release.
 ACP_BACKEND_COPILOT = "copilot"
+# Muse: Meta's Muse coding agent reached through a third-party npm adapter,
+# ``@brokkai/muse-acp``. TWO components, the pi split: the adapter is the ACP
+# server Crew spawns and the ``muse`` CLI is what the adapter spawns
+# (``muse serve``), and either can be absent on its own. Its permission route
+# is an ACP v1 session config option (``approval_mode``), the shape codex and
+# copilot have -- see :data:`Routing.SESSION_CONFIG`.
+#
+# VERIFIED RANGE: @brokkai/muse-acp 0.21.0 driving Muse 1.4.13. Its
+# ``approval_mode`` select on ``session/new`` -- advertised, settable through
+# ``session/set_config_option`` and read back off the write's own result --
+# and its ``session/request_permission`` per unmatched tool call are wire
+# facts of that pairing, measured by driving the adapter directly.
+ACP_BACKEND_MUSE = "muse"
 # Strands: the official Strands CLI (``@strands-agents/cli``) serving a Strands Python
 # project over ACP (``strands --agent <project> --acp-server``). One component to
 # install, a Node floor (the CLI's own ``engines.node``) and a Python environment for
@@ -473,6 +486,7 @@ ACP_BACKENDS_KNOWN: FrozenSet[str] = frozenset(
         ACP_BACKEND_GOOSE,
         ACP_BACKEND_DEEPSEEK,
         ACP_BACKEND_COPILOT,
+        ACP_BACKEND_MUSE,
     }
 )
 
@@ -490,6 +504,7 @@ ACP_BACKENDS_INDEPENDENT_SETUP: FrozenSet[str] = frozenset(
         ACP_BACKEND_GOOSE,
         ACP_BACKEND_DEEPSEEK,
         ACP_BACKEND_COPILOT,
+        ACP_BACKEND_MUSE,
     }
 )
 
@@ -606,6 +621,19 @@ ACP_BACKENDS_INDEPENDENT_SETUP: FrozenSet[str] = frozenset(
 #:   ``Agent`` the project builds, and a read-back boot proves the gate loaded from
 #:   Crew's file under this session's nonce before the session starts. See
 #:   :data:`Routing.VERIFIED_GATE_EXTENSION` and :data:`Readback.LOAD_MARKER`.
+#:
+#: ``ACP_BACKEND_MUSE`` is included on the same two conditions, met by codex's
+#: and copilot's mechanism:
+#:
+#: * ``backend_install`` probes for BOTH components -- the ``muse-acp``
+#:   adapter Crew spawns and the ``muse`` CLI the adapter spawns -- and names
+#:   whichever is absent with the command that installs it.
+#: * its tool calls are ROUTED. ``acp_tool_gate`` verifies ``session/new``
+#:   advertised the ``approval_mode`` option and writes ``promptUnmatched``
+#:   before the first prompt, refusing the session otherwise, so the
+#:   PreToolUse gate is armed for the calls it makes. The spawn also seeds
+#:   ``MUSE_APPROVAL_MODE`` so the session is born in that mode rather than
+#:   reaching it only at the write.
 BASELINE_SELECTABLE_BACKENDS: FrozenSet[str] = frozenset(
     {
         ACP_BACKEND_KIRO,
@@ -618,6 +646,7 @@ BASELINE_SELECTABLE_BACKENDS: FrozenSet[str] = frozenset(
         ACP_BACKEND_GOOSE,
         ACP_BACKEND_DEEPSEEK,
         ACP_BACKEND_COPILOT,
+        ACP_BACKEND_MUSE,
     }
 )
 
@@ -645,6 +674,7 @@ POLICY_ID_BY_BACKEND: dict = {
     ACP_BACKEND_GOOSE: ACP_BACKEND_GOOSE,
     ACP_BACKEND_DEEPSEEK: ACP_BACKEND_DEEPSEEK,
     ACP_BACKEND_COPILOT: ACP_BACKEND_COPILOT,
+    ACP_BACKEND_MUSE: ACP_BACKEND_MUSE,
 }
 
 #: The backend a deployment policy may never deny.

@@ -77,6 +77,11 @@ OPENCODE_PACKAGE = "opencode-ai"
 #: a pin on one alone would let the other drift unmeasured.
 PI_ACP_PACKAGE = "pi-acp"
 PI_PACKAGE = "@earendil-works/pi-coding-agent"
+#: The Muse backend's adapter. Its agent (the ``muse`` CLI) is not an npm
+#: package -- it installs from Meta's own installer -- so only the adapter is
+#: pinned here; ``test/test_muse_real_adapter.py`` requires both through
+#: Crew's own resolvers.
+MUSE_ACP_PACKAGE = "@brokkai/muse-acp"
 #: The harnesses only ``test_real_adapter_harness_probe.py`` drives.
 CLAUDE_AGENT_ACP_PACKAGE = "@agentclientprotocol/claude-agent-acp"
 DSH_PACKAGE = "@deepseek-ai/dsh"
@@ -122,6 +127,11 @@ MEASURED_PI_VERSION = pinned_version(PI_PACKAGE)
 MEASURED_CLAUDE_AGENT_ACP_VERSION = pinned_version(CLAUDE_AGENT_ACP_PACKAGE)
 MEASURED_DSH_VERSION = pinned_version(DSH_PACKAGE)
 MEASURED_STRANDS_CLI_VERSION = pinned_version(STRANDS_CLI_PACKAGE)
+
+#: The ``@brokkai/muse-acp`` release the live measurements in
+#: ``test/test_muse_real_adapter.py`` and the frame corpus under
+#: ``test/fixtures/acp_frames/muse/`` were taken against.
+MEASURED_MUSE_ACP_VERSION = pinned_version(MUSE_ACP_PACKAGE)
 
 
 def real_adapters_required() -> bool:

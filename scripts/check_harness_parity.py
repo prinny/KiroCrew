@@ -530,6 +530,7 @@ EXPECTED_AGENT_NAMES: dict[str, frozenset[str]] = {
     "pi": frozenset({"pi-acp"}),
     "deepseek": frozenset({"deepseek-harness-acp"}),
     "copilot": frozenset({"Copilot"}),
+    "muse": frozenset({"muse-acp"}),
     "strands": frozenset({"@strands-agents/cli"}),
 }
 

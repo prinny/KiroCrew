@@ -37,6 +37,7 @@ from kiro_crew.acp_backends import (
     ACP_BACKEND_GOOSE,
     ACP_BACKEND_KAS,
     ACP_BACKEND_KIRO,
+    ACP_BACKEND_MUSE,
     ACP_BACKEND_OPENCODE,
     ACP_BACKEND_PI,
     ACP_BACKEND_STRANDS,
@@ -47,6 +48,7 @@ from kiro_crew.providers.mirrors.codex import CodexMirror
 from kiro_crew.providers.mirrors.copilot import CopilotMirror
 from kiro_crew.providers.mirrors.deepseek import DeepSeekMirror
 from kiro_crew.providers.mirrors.goose import GooseMirror
+from kiro_crew.providers.mirrors.muse import MuseMirror
 from kiro_crew.providers.mirrors.opencode import OpenCodeMirror
 from kiro_crew.providers.mirrors.strands import StrandsMirror
 
@@ -228,6 +230,7 @@ MIRRORS: dict[str, type[AgentConfigMirror]] = {
     ACP_BACKEND_DEEPSEEK: DeepSeekMirror,
     ACP_BACKEND_COPILOT: CopilotMirror,
     ACP_BACKEND_STRANDS: StrandsMirror,
+    ACP_BACKEND_MUSE: MuseMirror,
 }
 
 #: Every backend this build can spell, and how its MCP surface is reached.
@@ -397,6 +400,24 @@ PROJECTIONS: dict[str, McpProjection] = {
         "gated by session/request_permission first)",
         # No per-call deny path is verified for this harness, so a narrowed server is
         # withheld whole, the direction that cannot leave a switched-off tool reachable.
+        per_tool_deny=PerToolDeny.WHOLE_SERVER,
+    ),
+    ACP_BACKEND_MUSE: McpProjection(
+        kind=ProjectionKind.MIRROR,
+        reason="muse.py -- the wire face alone, behind a gate this backend's own "
+        "facts require. The adapter accepts the session/new mcpServers array "
+        "and forwards client-supplied servers to the Muse host, so the "
+        "channel is real and the array is this backend's whole MCP channel "
+        "when it carries anything. Crew withholds the projection by default: "
+        "MCP tools are not covered by Muse's write/shell disable flags and "
+        "the servers run unsandboxed, so a mounted server can write files, "
+        "run commands and use the network in the very modes where Muse's own "
+        "tools are disabled. KIROCREW_MUSE_MCP opens the gate for the gateway "
+        "process, and the projection is placed by the shared single-binary "
+        "placement when it does",
+        # No per-call deny channel is verified for this harness, so a narrowed
+        # server is withheld whole, the direction that cannot leave a
+        # switched-off tool reachable.
         per_tool_deny=PerToolDeny.WHOLE_SERVER,
     ),
     ACP_BACKEND_STRANDS: McpProjection(

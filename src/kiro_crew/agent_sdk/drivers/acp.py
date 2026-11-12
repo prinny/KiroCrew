@@ -1326,6 +1326,7 @@ def forget_cached_resolution(backend: str) -> None:
     from kiro_crew.agent_sdk.backends import (
         ACP_BACKEND_CLAUDE,
         ACP_BACKEND_CODEX,
+        ACP_BACKEND_MUSE,
         ACP_BACKEND_PI,
     )
 
@@ -1336,6 +1337,7 @@ def forget_cached_resolution(backend: str) -> None:
         ACP_BACKEND_CLAUDE: ("_claude_acp_argv_cache",),
         ACP_BACKEND_CODEX: ("_codex_acp_argv_cache",),
         ACP_BACKEND_PI: ("_pi_acp_argv_cache", "_pi_bin_cache"),
+        ACP_BACKEND_MUSE: ("_muse_acp_argv_cache", "_muse_bin_cache"),
     }.get(backend, ())
     for name in sentinel_globals:
         if hasattr(_client, name):
@@ -1353,6 +1355,68 @@ def pi_install_command() -> str:
     from kiro_crew.acp.client import PI_INSTALL_COMMAND
 
     return PI_INSTALL_COMMAND
+
+
+def muse_components_resolve() -> tuple[bool, bool]:
+    """``(adapter, muse_cli)`` -- the muse backend's two halves, separately.
+
+    ``_resolve_muse_acp_bin`` finds the adapter Crew spawns; ``_resolve_muse_bin``
+    finds the CLI the adapter spawns, which Crew must ALSO resolve because its
+    launch names that binary to the adapter through ``MUSE_CLI``. Two answers
+    rather than one conjunction, for the reason the pi seam gives: the two
+    halves are different half-installs with different remedies.
+    """
+    from kiro_crew.acp.client import _resolve_muse_acp_bin, _resolve_muse_bin
+
+    adapter_argv, _searched = _resolve_muse_acp_bin()
+    muse_bin, _searched_muse = _resolve_muse_bin()
+    return bool(adapter_argv), bool(muse_bin)
+
+
+def muse_cached_negative() -> bool:
+    """Has the RUNNING gateway already resolved either muse component as absent?
+
+    Two caches, one answer: a cached miss on EITHER component means the next
+    spawn fails regardless of what a fresh probe finds. Consulted, never
+    invalidated, for the reason ``pi_cached_negative`` gives.
+    """
+    from kiro_crew.acp import client as _client
+
+    unresolved = getattr(_client, "_UNRESOLVED", object())
+    for name in ("_muse_acp_argv_cache", "_muse_bin_cache"):
+        cached = getattr(_client, name, None)
+        if cached is None or cached is unresolved:
+            continue
+        try:
+            found, _searched = cached  # type: ignore[misc]
+        except Exception:
+            continue
+        if not found:
+            return True
+    return False
+
+
+def muse_adapter_install_command() -> str:
+    """The pinned ``npm i -g`` command that installs the muse-acp adapter.
+
+    The command is imported rather than restated so it cannot drift from the
+    constant the spawn path's own error message names.
+    """
+    from kiro_crew.acp.client import MUSE_INSTALL_COMMAND
+
+    return MUSE_INSTALL_COMMAND
+
+
+def muse_cli_install_command() -> str:
+    """The command that installs the ``muse`` CLI, from the spawn path.
+
+    Muse's own installer -- the command the adapter's documentation names --
+    rather than an invented one: the two halves of this backend install
+    differently, which is the whole reason the probe names them separately.
+    """
+    from kiro_crew.acp.client import MUSE_CLI_INSTALL_COMMAND
+
+    return MUSE_CLI_INSTALL_COMMAND
 
 
 def claude_adapter_min_version() -> str:

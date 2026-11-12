@@ -31,6 +31,7 @@ from kiro_crew.agent_sdk.backends import (
     ACP_BACKEND_GOOSE,
     ACP_BACKEND_KAS,
     ACP_BACKEND_KIRO,
+    ACP_BACKEND_MUSE,
     ACP_BACKEND_OPENCODE,
     ACP_BACKEND_PI,
     ACP_BACKEND_STRANDS,
@@ -432,6 +433,13 @@ ACP_BACKEND_ROUTING: dict = {
     # that switch as an ACP v1 session config option (``allow_all``) on every
     # session/new and session/load -- Codex's mechanism, applied the same way.
     ACP_BACKEND_COPILOT: Routing.SESSION_CONFIG,
+    # Muse asks per tool call its own permission rules do not match, and it
+    # states the posture that decides matching as an ACP v1 session config
+    # option (``approval_mode``) on every session/new -- Codex's mechanism,
+    # applied the same way. Measured on @brokkai/muse-acp 0.21.0 driving Muse
+    # Code 1.4.13: the option is advertised, a write of ``promptUnmatched`` is
+    # accepted and the write's own result reports it back as the current value.
+    ACP_BACKEND_MUSE: Routing.SESSION_CONFIG,
     # The Strands CLI's Python-project ACP mode forwards a Strands interrupt as
     # ``session/request_permission`` and raises none for a tool call itself, so Crew
     # loads the project through its own gate module, which raises one per call --
@@ -463,6 +471,21 @@ ACP_BACKEND_PERMISSION_CONFIG: dict = {
     # the session's directory run without asking, which is the same residual Codex
     # has and the same OS credential mask compensates for.
     ACP_BACKEND_COPILOT: ("allow_all", "off"),
+    # Muse's ``approval_mode`` option: ``promptUnmatched`` is "send every
+    # tool call Muse's own permission rules do not match through
+    # session/request_permission", which is the posture that puts every such
+    # call in front of Crew's gate. The alternatives are why the write is
+    # Crew's rather than inherited: ``allowAll`` approves without asking,
+    # ``onRequest`` is the host's saved default posture (an operator's Muse
+    # profile decides it, not Crew), and ``denyUnmatched`` refuses unmatched
+    # calls inside Muse without ever asking, which would hide them from the
+    # gate rather than route them through it. The spawn also seeds
+    # ``MUSE_APPROVAL_MODE`` with the same value, so the session is born in
+    # this mode and the write confirms a state rather than creating one.
+    # Measured on @brokkai/muse-acp 0.21.0 / Muse 1.4.13. Passive reads
+    # Muse's own rules match run without asking, which is the same residual
+    # Codex has and the same OS credential mask compensates for.
+    ACP_BACKEND_MUSE: ("approval_mode", "promptUnmatched"),
 }
 
 
