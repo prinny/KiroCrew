@@ -1,0 +1,40 @@
+name: review-gate
+
+# Requires every pull request to carry current, clean validation evidence
+# from the project's validation pipeline before it can merge. The check
+# verifies the evidence comment and its linked evidence page against the
+# PR's current head; see docs/ci/review-pipeline.md.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to evaluate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+  checks: write
+
+jobs:
+  review-gate:
+    name: review-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify validation evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EMIT_CHECK: ${{ github.event_name == 'workflow_dispatch' }}
+        run: node scripts/review-pipeline/check-evidence.mjs
