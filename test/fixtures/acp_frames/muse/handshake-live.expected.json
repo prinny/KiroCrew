@@ -1,0 +1,314 @@
+[
+  {
+    "agent_capabilities": {
+      "_meta": {
+        "muse": {
+          "capabilities": [
+            "computerUse",
+            "hooks",
+            "plugins",
+            "readOutput",
+            "sideChat",
+            "userShell"
+          ]
+        }
+      },
+      "auth": {
+        "logout": {}
+      },
+      "loadSession": true,
+      "mcpCapabilities": {
+        "http": true,
+        "sse": false
+      },
+      "promptCapabilities": {
+        "audio": false,
+        "embeddedContext": true,
+        "image": true
+      },
+      "sessionCapabilities": {
+        "additionalDirectories": {},
+        "close": {},
+        "fork": {},
+        "list": {},
+        "resume": {}
+      }
+    },
+    "agent_version": "0.21.0",
+    "frame": "response",
+    "id": 1,
+    "protocol_version": 1
+  },
+  {
+    "config_options": [
+      {
+        "category": "mode",
+        "currentValue": "default",
+        "description": "Read-only and Plan block Muse's file and shell tools; client MCP tools remain available",
+        "id": "mode",
+        "name": "Mode",
+        "options": [
+          {
+            "description": "Muse can edit files and run commands, as the approval mode allows",
+            "name": "Default",
+            "value": "default"
+          },
+          {
+            "description": "Muse can read and answer, but cannot write files or run shell commands",
+            "name": "Read-only",
+            "value": "readOnly"
+          },
+          {
+            "description": "Read-only, and Muse plans instead of implementing; switch modes to implement",
+            "name": "Plan",
+            "value": "plan"
+          }
+        ],
+        "type": "select"
+      },
+      {
+        "currentValue": "onRequest",
+        "description": "Muse approval enforcement mode for tool actions",
+        "id": "approval_mode",
+        "name": "Approval Mode",
+        "options": [
+          {
+            "description": "Allow everything",
+            "name": "Allow all",
+            "value": "allowAll"
+          },
+          {
+            "description": "Prompt on unmatched subjects",
+            "name": "Prompt unmatched",
+            "value": "promptUnmatched"
+          },
+          {
+            "description": "Approve only on request",
+            "name": "On request",
+            "value": "onRequest"
+          },
+          {
+            "description": "Deny unmatched subjects",
+            "name": "Deny unmatched",
+            "value": "denyUnmatched"
+          }
+        ],
+        "type": "select"
+      },
+      {
+        "currentValue": "off",
+        "description": "Dangerous: send every permission request to an auto-review agent that can approve or deny it without asking you",
+        "id": "auto_review",
+        "name": "Auto-review",
+        "options": [
+          {
+            "name": "Off",
+            "value": "off"
+          },
+          {
+            "name": "On",
+            "value": "on"
+          }
+        ],
+        "type": "select"
+      },
+      {
+        "category": "model",
+        "currentValue": "muse-wonder-full-1.0",
+        "id": "model",
+        "name": "Model",
+        "options": [
+          {
+            "name": "muse-wonder-full-1.0",
+            "value": "muse-wonder-full-1.0"
+          }
+        ],
+        "type": "select"
+      },
+      {
+        "category": "thought_level",
+        "currentValue": "default",
+        "description": "Muse reasoning effort for this session; Muse default keeps the tier configured in Muse",
+        "id": "reasoning_effort",
+        "name": "Reasoning Effort",
+        "options": [
+          {
+            "name": "Muse default",
+            "value": "default"
+          },
+          {
+            "name": "Minimal",
+            "value": "minimal"
+          },
+          {
+            "name": "Low",
+            "value": "low"
+          },
+          {
+            "name": "Medium",
+            "value": "medium"
+          },
+          {
+            "name": "High",
+            "value": "high"
+          },
+          {
+            "name": "Extra High",
+            "value": "xhigh"
+          },
+          {
+            "name": "Max",
+            "value": "max"
+          }
+        ],
+        "type": "select"
+      }
+    ],
+    "frame": "response",
+    "id": 2,
+    "modes": {
+      "advertised": true,
+      "current": "default",
+      "ids": [
+        "default",
+        "readOnly",
+        "plan"
+      ]
+    },
+    "session_id": "muse-session-1"
+  },
+  {
+    "config_options": [
+      {
+        "category": "mode",
+        "currentValue": "default",
+        "description": "Read-only and Plan block Muse's file and shell tools; client MCP tools remain available",
+        "id": "mode",
+        "name": "Mode",
+        "options": [
+          {
+            "description": "Muse can edit files and run commands, as the approval mode allows",
+            "name": "Default",
+            "value": "default"
+          },
+          {
+            "description": "Muse can read and answer, but cannot write files or run shell commands",
+            "name": "Read-only",
+            "value": "readOnly"
+          },
+          {
+            "description": "Read-only, and Muse plans instead of implementing; switch modes to implement",
+            "name": "Plan",
+            "value": "plan"
+          }
+        ],
+        "type": "select"
+      },
+      {
+        "currentValue": "promptUnmatched",
+        "description": "Muse approval enforcement mode for tool actions",
+        "id": "approval_mode",
+        "name": "Approval Mode",
+        "options": [
+          {
+            "description": "Allow everything",
+            "name": "Allow all",
+            "value": "allowAll"
+          },
+          {
+            "description": "Prompt on unmatched subjects",
+            "name": "Prompt unmatched",
+            "value": "promptUnmatched"
+          },
+          {
+            "description": "Approve only on request",
+            "name": "On request",
+            "value": "onRequest"
+          },
+          {
+            "description": "Deny unmatched subjects",
+            "name": "Deny unmatched",
+            "value": "denyUnmatched"
+          }
+        ],
+        "type": "select"
+      },
+      {
+        "currentValue": "off",
+        "description": "Dangerous: send every permission request to an auto-review agent that can approve or deny it without asking you",
+        "id": "auto_review",
+        "name": "Auto-review",
+        "options": [
+          {
+            "name": "Off",
+            "value": "off"
+          },
+          {
+            "name": "On",
+            "value": "on"
+          }
+        ],
+        "type": "select"
+      },
+      {
+        "category": "model",
+        "currentValue": "muse-wonder-full-1.0",
+        "id": "model",
+        "name": "Model",
+        "options": [
+          {
+            "name": "muse-wonder-full-1.0",
+            "value": "muse-wonder-full-1.0"
+          }
+        ],
+        "type": "select"
+      },
+      {
+        "category": "thought_level",
+        "currentValue": "default",
+        "description": "Muse reasoning effort for this session; Muse default keeps the tier configured in Muse",
+        "id": "reasoning_effort",
+        "name": "Reasoning Effort",
+        "options": [
+          {
+            "name": "Muse default",
+            "value": "default"
+          },
+          {
+            "name": "Minimal",
+            "value": "minimal"
+          },
+          {
+            "name": "Low",
+            "value": "low"
+          },
+          {
+            "name": "Medium",
+            "value": "medium"
+          },
+          {
+            "name": "High",
+            "value": "high"
+          },
+          {
+            "name": "Extra High",
+            "value": "xhigh"
+          },
+          {
+            "name": "Max",
+            "value": "max"
+          }
+        ],
+        "type": "select"
+      }
+    ],
+    "frame": "response",
+    "id": 3
+  },
+  {
+    "action": "update",
+    "events": [],
+    "frame": "session/update",
+    "session_update": "config_option_update"
+  }
+]

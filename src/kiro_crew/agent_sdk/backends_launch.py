@@ -26,6 +26,7 @@ from kiro_crew.agent_sdk.backends import (
     ACP_BACKEND_GOOSE,
     ACP_BACKEND_KAS,
     ACP_BACKEND_KIRO,
+    ACP_BACKEND_MUSE,
     ACP_BACKEND_OPENCODE,
     ACP_BACKEND_PI,
     ACP_BACKEND_STRANDS,
@@ -319,6 +320,11 @@ ACP_BACKEND_PROCESS_NAMES: Mapping[str, str] = {
     ACP_BACKEND_CLAUDE: "claude-agent-acp",
     ACP_BACKEND_CODEX: "codex-acp",
     ACP_BACKEND_PI: "pi-acp",
+    # The muse-acp adapter's Node shim execs a native binary of this name, and
+    # that binary is the long-lived ACP-speaking process the reclaim has to
+    # recognise; the shim itself is a ``node`` process like every other
+    # adapter's launcher.
+    ACP_BACKEND_MUSE: "muse-acp",
     **{backend: record.binary for backend, record in sorted(ACP_BACKEND_LAUNCH.items())},
 }
 

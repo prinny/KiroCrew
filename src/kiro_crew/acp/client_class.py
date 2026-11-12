@@ -65,6 +65,7 @@ from kiro_crew.acp.types import (
     ACP_BACKEND_DEEPSEEK,
     ACP_BACKEND_GOOSE,
     ACP_BACKEND_KIRO,
+    ACP_BACKEND_MUSE,
     ACP_BACKEND_OPENCODE,
     ACP_BACKEND_PI,
     ACP_BACKEND_STRANDS,
@@ -879,6 +880,7 @@ class AcpClient:
     _discard_pi_mcp_handoff = _client_mcp_array._discard_pi_mcp_handoff
     _discard_copilot_mcp_config = _client_mcp_array._discard_copilot_mcp_config
     _goose_session_mcp_servers = _client_mcp_array._goose_session_mcp_servers
+    _muse_session_mcp_servers = _client_mcp_array._muse_session_mcp_servers
     _invalidate_session_mcp_projection = _client_mcp_array._invalidate_session_mcp_projection
     _prepare_session_mcp = _client_mcp_array._prepare_session_mcp
     _mcp_timeout_progress = _client_mcp_array._mcp_timeout_progress
@@ -947,6 +949,10 @@ class AcpClient:
     @property
     def _is_pi(self) -> bool:
         return self.backend == ACP_BACKEND_PI
+
+    @property
+    def _is_muse(self) -> bool:
+        return self.backend == ACP_BACKEND_MUSE
 
     @property
     def _is_goose(self) -> bool:

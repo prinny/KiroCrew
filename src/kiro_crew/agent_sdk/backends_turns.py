@@ -27,6 +27,7 @@ from kiro_crew.agent_sdk.backends import (
     ACP_BACKEND_GOOSE,
     ACP_BACKEND_KAS,
     ACP_BACKEND_KIRO,
+    ACP_BACKEND_MUSE,
     ACP_BACKEND_OPENCODE,
     ACP_BACKEND_PI,
     ACP_BACKEND_STRANDS,
@@ -741,7 +742,10 @@ ACP_BACKENDS_UNATTRIBUTED_TERMINAL_ERROR = frozenset({ACP_BACKEND_CODEX})
 # turn_completion promptTurnSummaries unit=credit entry (acp_frames/kas/turn-usage-live.jsonl);
 # claude, opencode and goose as token counts on the ``session/prompt`` result's ``usage``
 # (acp_frames/claude/session.jsonl, acp_frames/opencode/session-live.jsonl,
-# acp_frames/goose/turn-live.jsonl).
+# acp_frames/goose/turn-live.jsonl); muse the same way
+# (acp_frames/muse/session-live.jsonl, driving @brokkai/muse-acp 0.21.0 /
+# Muse 1.4.13: its prompt result carries ``usage`` with total/input/output
+# token counts, and its ``usage_update`` frames carry the context occupancy).
 ACP_BACKENDS_REPORT_USAGE = frozenset(
     {
         ACP_BACKEND_KIRO,
@@ -749,6 +753,7 @@ ACP_BACKENDS_REPORT_USAGE = frozenset(
         ACP_BACKEND_CLAUDE,
         ACP_BACKEND_OPENCODE,
         ACP_BACKEND_GOOSE,
+        ACP_BACKEND_MUSE,
     }
 )
 

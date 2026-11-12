@@ -66,6 +66,7 @@ from kiro_crew.agent_sdk.backends import (
     ACP_BACKEND_CODEX,
     ACP_BACKEND_DEEPSEEK,
     ACP_BACKEND_LAUNCH,
+    ACP_BACKEND_MUSE,
     ACP_BACKEND_PI,
     ACP_BACKEND_STRANDS,
     Readback,
@@ -128,6 +129,7 @@ UNENFORCED_CONTROLS = (
 _LABELS: dict = {
     ACP_BACKEND_CODEX: "OpenAI Codex",
     ACP_BACKEND_PI: "Pi",
+    ACP_BACKEND_MUSE: "Muse",
     **{backend: record.label for backend, record in sorted(ACP_BACKEND_LAUNCH.items())},
 }
 

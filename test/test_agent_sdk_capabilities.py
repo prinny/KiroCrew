@@ -349,6 +349,7 @@ def test_known_membership_is_unchanged_by_the_move() -> None:
         "deepseek",
         "goose",
         "kas",
+        "muse",
         "opencode",
         "pi",
         "strands",
@@ -694,7 +695,12 @@ def test_honor_zero_tool_ban_membership_matches_the_rule() -> None:
     # ``_deny_zero_tools`` sees each one. Copilot CLI 1.0.100 reads a file inside the
     # session's own directory without asking (measured, see the set's comment), so a
     # total ban cannot be honoured there even though the three facts hold.
-    reads_unasked = {sdk_backends.ACP_BACKEND_COPILOT}
+    # Muse is the second: under the promptUnmatched posture Crew arms, a
+    # tool call Muses own permission rules match -- an operators allow rules
+    # in their Muse settings -- runs without a permission request, so
+    # _deny_zero_tools never sees it and a total ban cannot be honoured
+    # there either.
+    reads_unasked = {sdk_backends.ACP_BACKEND_COPILOT, sdk_backends.ACP_BACKEND_MUSE}
     # A second ground, beside the refusal: a zero-tool session that MOUNTS NO TOOL,
     # so no call exists for a pre-approval to run. claude's session options carry an
     # empty ``tools`` with ``strictMcpConfig`` and an empty wire array, measured on

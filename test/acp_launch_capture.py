@@ -26,6 +26,7 @@ from kiro_crew.acp import launch as launch_mod
 from kiro_crew.acp import runtime as runtime_mod
 from kiro_crew.acp.client import AcpClient
 from kiro_crew.acp.harness import claude as claude_mod
+from kiro_crew.acp.harness import muse as muse_mod
 from kiro_crew.acp.harness import codex as codex_harness_mod
 from kiro_crew.acp.harness import deepseek as deepseek_mod
 from kiro_crew.acp.harness import opencode as opencode_mod
@@ -58,6 +59,8 @@ _CLAUDE_ACP_ARGV = ["/opt/bin/node", "/opt/lib/claude-agent-acp/index.js"]
 _CODEX_ACP_ARGV = ["/opt/bin/node", "/opt/lib/codex-acp/index.js"]
 _PI_ACP_ARGV = ["/opt/bin/node", "/opt/lib/pi-acp/index.js"]
 _PI_BIN = "/opt/bin/pi"
+_MUSE_ACP_ARGV = ["/opt/bin/node", "/opt/lib/muse-acp/muse-acp.cjs"]
+_MUSE_BIN = "/opt/bin/muse"
 _PI_LAUNCHER = "/opt/run/pi-launcher.sh"
 _PI_EXTENSION = "/opt/run/kiro_crew_tool_gate.ts"
 _PI_MCP_HANDOFF = "/opt/run/kirocrew_pi_gate_mcp_handoff.json"
@@ -378,6 +381,10 @@ def _stub_common(stack: list, rec: _Recorder, tmp_path: Path, backend: str = "")
             ),
             patch.object(pi_mod, "_resolve_pi_acp_bin", return_value=(_PI_ACP_ARGV, _SEARCH_PATH)),
             patch.object(pi_mod, "_resolve_pi_bin", return_value=(_PI_BIN, _SEARCH_PATH)),
+            patch.object(
+                muse_mod, "_resolve_muse_acp_bin", return_value=(_MUSE_ACP_ARGV, _SEARCH_PATH)
+            ),
+            patch.object(muse_mod, "_resolve_muse_bin", return_value=(_MUSE_BIN, _SEARCH_PATH)),
             patch.object(pi_mod, "_pi_node_choice", return_value=pi_mod.PiNodeChoice()),
             patch.object(claude_mod, "_resolve_claude_code_executable", return_value=""),
             patch.object(AcpClient, "_write_claude_local_settings", return_value=None),

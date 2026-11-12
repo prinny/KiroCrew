@@ -134,6 +134,23 @@
     "spawn_label": "kiro-cli acp",
     "stderr_label": "kiro-cli"
   },
+  "muse": {
+    "argv": [
+      "/opt/bin/node",
+      "/opt/lib/muse-acp/muse-acp.cjs"
+    ],
+    "env_added": {
+      "KIROCREW_RUNTIME_PYTHON": "<interpreter>",
+      "KIROCREW_SESSION_KEY": "golden-session",
+      "KIROCREW_SPAWNED": "1",
+      "KIROCREW_STUB_SESSION_TOKEN": "<session-token>",
+      "MUSE_APPROVAL_MODE": "promptUnmatched",
+      "MUSE_CLI": "/opt/bin/muse",
+      "PATH": "<augmented-path>"
+    },
+    "spawn_label": "muse-acp via /opt/lib/muse-acp/muse-acp.cjs",
+    "stderr_label": "muse-acp via /opt/lib/muse-acp/muse-acp.cjs"
+  },
   "opencode": {
     "argv": [
       "/opt/bin/opencode",
