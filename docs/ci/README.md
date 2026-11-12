@@ -13,6 +13,7 @@ pull-request gate any more").
 | [harness-parity-gate.md](harness-parity-gate.md) | The added-line gate keeping the Kiro harness first-class: the six rules, and why it reports rather than enforces whole-tree. |
 | [kiro-light-card-gate.md](kiro-light-card-gate.md) | The computed-style sweep that fails when a surface has no edge of its own in kiro-light, where `--card` equals `--bg`. |
 | [i18n-gates.md](i18n-gates.md) | The i18n gate chain: what fails, what only reports, and the ratchet rule. |
+| [review-pipeline.md](review-pipeline.md) | The evidence gate for dependency bumps: the wiki evidence pages, the evidence comment and its verification marker, and the required `review-gate` check. |
 
 The local gate you run before committing is in [../../AGENTS.md](../../AGENTS.md);
 test determinism and speed are in
