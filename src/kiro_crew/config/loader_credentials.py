@@ -73,6 +73,13 @@ MANAGED_VAULT_FIXED_CONSUMERS = {
 # scrubs it out of the gateway's /proc/<pid>/environ.
 CRED_KIRO_API_KEY = "KIRO_API_KEY"
 
+# The Meta Model API key for the native provider (agent.provider =
+# "meta_api"). Its consumer is the app-server child the provider spawns,
+# which reads it from its environment under this name (the forced
+# ``env_key``), so a ``secret://`` value in ``agent.meta_api_secret`` is
+# resolved through :func:`resolve_env_credentials` before the spawn.
+CRED_MODEL_API_KEY = "MODEL_API_KEY"
+
 CREDENTIAL_KEYS = (
     CRED_SLACK_APP_TOKEN,
     CRED_SLACK_BOT_TOKEN,
@@ -93,6 +100,7 @@ CREDENTIAL_KEYS = (
     CRED_BITBUCKET_EMAIL,
     CRED_BITBUCKET_API_TOKEN,
     CRED_KIRO_API_KEY,
+    CRED_MODEL_API_KEY,
 )
 
 # Channel secrets whose every reader resolves a ``secret://`` reference through

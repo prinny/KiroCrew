@@ -267,6 +267,17 @@ class LLMProvider(ABC):
         return False
 
     @property
+    def is_meta_api_backend(self) -> bool:
+        """True only when this provider IS the native Meta Model API provider.
+
+        Declared here with the safe default (harness-parity H14) so identity
+        stays positive: a consumer asks this question rather than inferring
+        "not ACP", which would read True for every future provider. Only
+        ``MetaApiProvider`` answers True.
+        """
+        return False
+
+    @property
     def session_activity_at(self) -> float | None:
         """Monotonic time the backend last sent anything for this session.
 

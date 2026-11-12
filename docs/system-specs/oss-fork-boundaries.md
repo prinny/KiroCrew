@@ -38,6 +38,23 @@ security-path spelling. This file is a standing boundary.
   [rfc-pluggable-model-providers.md](../request-for-change/rfc-pluggable-model-providers.md)
   asks for; until it is accepted the boundary holds.
 
+  **Fork extension — one native provider.** This fork deliberately diverges
+  from the rule above in exactly one place: `agent.provider` admits a
+  second value, `meta_api`, selecting a first-party provider that calls the
+  Meta Model API directly instead of driving a harness over ACP. The
+  divergence is knowing, narrow, and labelled. The ACP provider remains the
+  default and the floor. The native provider routes every tool call through
+  the permission gate — its approval mode is forced by the provider and
+  verified before the first prompt, the same admission bar every ACP
+  backend meets — declares its reduced capability set in
+  `docs/system-specs/modules/providers.md`, and fills the same per-turn
+  usage record as the ACP provider. Nothing else in this section moves: no
+  third provider value is admitted by this extension, and a harness is
+  still never selected at `agent.provider` — harnesses remain at
+  `agent.acp_backend`. If upstream accepts
+  `rfc-pluggable-model-providers`, this extension is retired in favour of
+  the accepted seam and this paragraph is removed in the same change.
+
 ## Deliberately inert, and it stays that way
 
 These are live modules whose public implementation does nothing. They hold the import
@@ -61,6 +78,14 @@ STT extras.
 
 ## Fork UX divergences
 
+- **A native Meta Model API provider.** `agent.provider = "meta_api"`
+  runs sessions on a first-party provider (Meta Model API, Responses
+  format) instead of an ACP harness. Native sessions are labelled with
+  their provider in the dashboard, bill per token at the published API
+  rates with the cost recorded on every turn, and carry the documented
+  reduced capability set described in
+  `docs/system-specs/modules/providers.md`. The default remains `acp`,
+  and an ACP session is indistinguishable from upstream's.
 - The **Channels** app is hidden from the App Store, and the **Board** app is removed.
   An upstream sync must not restore either.
 - **The built-in app set is closed, and it is being emptied.** Kiro Crew accepts no

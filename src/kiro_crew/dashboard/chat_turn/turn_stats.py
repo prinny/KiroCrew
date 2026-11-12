@@ -859,10 +859,11 @@ async def _on_complete(turn: _ChatTurn, event) -> Literal[_Flow.BREAK] | None:
     # stays behind the gate below.
     #
     # The provider is the SERVED backend, read off the live client,
-    # NOT `cfg.agent.provider`: that field is declared `enum=["acp"]`
-    # and `validate_config_data` deletes an out-of-enum value, so it is
-    # a constant naming no backend at all. Reading it labelled every
-    # dashboard turn "acp" — a claude_code turn included — which makes
+    # NOT `cfg.agent.provider`: that field is declared
+    # `enum=["acp", "meta_api"]` and `validate_config_data` deletes an
+    # out-of-enum value, so it names a provider axis, never the harness
+    # that ran the turn. Reading it labelled every dashboard turn by its
+    # configured provider — a claude_code turn included — which makes
     # a provider split answer nothing.
     #
     # Read as `SessionCapabilities.provider_seam`, the label the

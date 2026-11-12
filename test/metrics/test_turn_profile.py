@@ -386,22 +386,24 @@ class TestDashboardOwnerEmitsTheWholeFamily:
 class TestServedBackendAttribution:
     """`provider` must name the backend that RAN the turn.
 
-    `cfg.agent.provider` cannot: it is declared `enum=["acp"]` with default
-    "acp", so reading it stamped every dashboard turn -- claude_code and KAS
-    included -- with one constant, and a provider split over a constant answers
-    nothing. `providers.acp.provider_label` resolves the live client to the same
-    three-value vocabulary that `subagent_manager` already writes.
+    `cfg.agent.provider` cannot: it names the provider axis (declared
+    `enum=["acp", "meta_api"]` with default "acp"), never the harness that
+    ran the turn, so reading it stamped every dashboard turn -- claude_code
+    and KAS included -- with the configured provider, and a split over it
+    answers nothing about which harness ran. `providers.acp.provider_label`
+    resolves the live client to the same three-value vocabulary that
+    `subagent_manager` already writes.
     """
 
-    def test_the_config_field_is_a_single_valued_enum(self):
-        """The premise. If this ever gains values, revisit the emit site."""
+    def test_the_config_field_is_a_provider_axis_enum(self):
+        """The premise. If this ever gains MORE values, revisit the emit site."""
         from dataclasses import fields
 
         from kiro_crew.config.loader import AgentConfig
 
         provider = next(f for f in fields(AgentConfig) if f.name == "provider")
         assert provider.default == "acp"
-        assert provider.metadata["enum"] == ["acp"]
+        assert provider.metadata["enum"] == ["acp", "meta_api"]
 
     def test_label_distinguishes_the_backend_the_config_cannot(self):
         """`is_claude_backend` separates the two backends this surface can see.

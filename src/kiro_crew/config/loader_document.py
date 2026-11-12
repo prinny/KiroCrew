@@ -394,15 +394,16 @@ def _refuse_unpublishable(data: dict, path: Path) -> None:
     The publish floor for every writer that lands a config document -- the locked
     read-modify-write (``update_config_locked``, behind ``config set`` and every
     dashboard PUT) and the whole-document :meth:`KiroCrewConfig.save` alike -- so
-    each rule holds however a value arrived. Two rules, both on mappings of
-    environment variables an agent process receives: a provider key in plaintext
-    under ``agent.deepseek_env`` (:func:`_refuse_deepseek_env_plaintext`), and an
+    each rule holds however a value arrived. The rules: a provider key in plaintext
+    under ``agent.deepseek_env`` (:func:`_refuse_deepseek_env_plaintext`) or under
+    ``agent.meta_api_secret`` (:func:`_refuse_meta_api_secret_plaintext`), and an
     ``agent.env`` entry no spawn would ever apply (:func:`_refuse_agent_env_entries`).
     Keyed on the document's SHAPE rather than on the path, so an agent spec written
     through the same function is untouched -- it has neither mapping.
     """
     _refuse_deepseek_env_plaintext(data, path)
     _refuse_vault_env_plaintext(data, path, "strands_env", "a Strands session")
+    _refuse_meta_api_secret_plaintext(data, path)
     _refuse_agent_env_entries(data, path)
 
 
@@ -462,6 +463,41 @@ def _refuse_vault_env_plaintext(data: dict, path: Path, key: str, refused_sessio
         "write was refused: this mapping takes a 'secret://<vault name>' reference "
         "only, and no provider key is ever stored in config.json. Save the key "
         "under Settings > Secrets, then map it as 'secret://<vault name>'."
+    )
+
+
+def _refuse_meta_api_secret_plaintext(data: dict, path: Path) -> None:
+    """Refuse a plaintext API key under ``agent.meta_api_secret``.
+
+    The single-field equivalent of :func:`_refuse_vault_env_plaintext`:
+    that field takes a ``secret://<vault name>`` reference only (or is
+    empty, deferring to the environment), and a plaintext that reaches
+    disk is already the defect. Same doing-of-this-write semantics: a
+    plaintext this write introduces, or one it changes the field while
+    leaving in place, is refused; a pre-existing plaintext a write leaves
+    exactly as found publishes with the field named on the log (never the
+    value), and the native provider still refuses it at start.
+    """
+    agent = data.get("agent") if isinstance(data, dict) else None
+    value = agent.get("meta_api_secret") if isinstance(agent, dict) else None
+    if not _sections.meta_api_secret_plaintext(value):
+        return
+    if _agent_key_on_disk(path, "meta_api_secret") == value:
+        logger.warning(
+            "config.json already holds a literal value under "
+            "agent.meta_api_secret; this write left that field as it found "
+            "it. That field takes a 'secret://<vault name>' reference only, "
+            "and a native Meta session is refused while it stands: save the "
+            "key under Settings > Secrets, then reference it as "
+            "'secret://<vault name>'."
+        )
+        return
+    raise ConfigWriteRefused(
+        "agent.meta_api_secret holds a literal value, so the config write "
+        "was refused: this field takes a 'secret://<vault name>' reference "
+        "only, and no API key is ever stored in config.json. Save the key "
+        "under Settings > Secrets, then reference it as "
+        "'secret://<vault name>'."
     )
 
 

@@ -1387,10 +1387,28 @@ class KiroCrewConfig:
     def create_provider_factory(self) -> Callable:
         """Return a factory that creates LLMProvider instances from config.
 
-        Kiro Crew is KiroACP-only: the sole provider is the ACP adapter driving
-        the kiro-cli backend. The factory accepts an optional ``session_key`` to
-        create a per-session subdirectory under ``workspace_root()``.
+        The factory dispatches on ``agent.provider``: ``"acp"`` (the
+        default and the floor) builds the ACP adapter driving the selected
+        harness; ``"meta_api"`` builds this fork's native Meta Model API
+        provider (:meth:`_create_meta_api_provider_factory`). Load-time
+        validation rewrites an out-of-enum provider value to ``"acp"``
+        before this runs, so a value that is neither is a programming
+        error and fails closed here rather than defaulting silently. The
+        factory accepts an optional ``session_key`` to create a
+        per-session subdirectory under ``workspace_root()``.
         """
+        from kiro_crew.agent_sdk.provider_identity import (
+            PROVIDER_ACP,
+            is_meta_api,
+        )
+
+        if is_meta_api(self.agent.provider):
+            return self._create_meta_api_provider_factory()
+        if self.agent.provider != PROVIDER_ACP:
+            raise ValueError(
+                f"Unknown agent.provider {self.agent.provider!r}; expected "
+                f"{PROVIDER_ACP!r} or 'meta_api'"
+            )
         from kiro_crew.agent_sdk.drivers.acp import build_acp_provider
         from kiro_crew.session_work_dir import is_disposable_session_key
 
@@ -1655,3 +1673,64 @@ class KiroCrewConfig:
             )
 
         return _acp
+
+    def _create_meta_api_provider_factory(self) -> Callable:
+        """The factory for ``agent.provider = "meta_api"`` sessions.
+
+        Builds :class:`~kiro_crew.providers.meta_api.MetaApiProvider` with
+        the same per-session arguments the ACP factory passes its provider.
+        Member and worker sessions are REFUSED here, at construction: the
+        native provider cannot honour the crewmate kit (member dispatch,
+        per-tool limits, the mate-worker kit), so a crewmate must stay on
+        ACP rather than start on a provider that silently drops its kit.
+        """
+        from kiro_crew.providers.meta_api import MetaApiProvider
+
+        model = self.agent.model
+        if model == DEFAULT_MODEL:
+            model = self._resolve_agent_model()
+        sandbox = self.agent.sandbox
+        base_url = self.agent.meta_api_base_url
+        credential_ref = self.agent.meta_api_secret
+        monthly_budget = self.agent.meta_api_monthly_budget_usd
+
+        def _meta_api(
+            session_key: str | None = None,
+            agent: str | None = None,
+            channel_id: str | None = None,
+            model_override: str | None = None,
+            cwd: str | None = None,
+            extra_env: dict[str, str] | None = None,
+            reasoning_effort_override: str | None = None,
+            crew_agent: str | None = None,
+            member_context: bool = False,
+            **_kwargs: object,
+        ) -> MetaApiProvider:
+            # circular import: members sits above config in the layering.
+            from kiro_crew.members import is_crewmate_worker_session
+
+            if member_context or is_crewmate_worker_session(session_key):
+                raise ValueError(
+                    "agent.provider 'meta_api' does not serve member or "
+                    "worker sessions in this build: the native provider "
+                    "cannot honour the crewmate kit. Bots stay on the ACP "
+                    "provider."
+                )
+            wdir = Path(cwd) if cwd else _session_work_dir(session_key)
+            effort = reasoning_effort_override or self.agent.reasoning_effort or ""
+            return MetaApiProvider(
+                work_dir=wdir,
+                model=model_override or model,
+                agent=agent,
+                sandbox_mode=sandbox,
+                session_key=session_key,
+                channel_id=channel_id,
+                extra_env=extra_env,
+                unbound_effort=effort,
+                api_base_url=base_url,
+                credential_ref=credential_ref,
+                monthly_budget_usd=monthly_budget,
+                data_home=env_path().parent,
+            )
+
+        return _meta_api
