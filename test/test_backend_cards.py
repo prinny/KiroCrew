@@ -372,6 +372,10 @@ def test_core_counts_per_harness_are_pinned() -> None:
         # an option, and a second session/prompt sent mid-turn was answered at once
         # without joining the running turn, so it is not a steer channel.
         "mimocode": 4,
+        # Crew tools (through the mirror, behind the MCP opt-in gate that is
+        # closed by default), reasoning effort and model switch: no member
+        # dispatch, no side chat, no steer, no compact.
+        "muse": 3,
         "opencode": 6,
         "pi": 6,
         # Crew's tools, read-only side chat, and effort and model (both moved by a

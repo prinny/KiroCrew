@@ -72,6 +72,7 @@ from kiro_crew.agent_sdk.backends import (
     ACP_BACKEND_KAS,
     ACP_BACKEND_KIRO,
     ACP_BACKEND_MIMOCODE,
+    ACP_BACKEND_MUSE,
     ACP_BACKEND_OPENCODE,
     ACP_BACKEND_PI,
     ACP_BACKEND_STRANDS,
@@ -891,6 +892,44 @@ AGENT_AUTH_DECLARATIONS: Tuple[AgentAuthDeclaration, ...] = (
         # Excluded deliberately: it signs in through its own credential file, so a
         # ``kiro-cli logout`` says nothing about whether a running mimocode session is
         # still authenticated.
+        # still authenticated.
+        host_logout_retires_children=False,
+        entitlement_source=ENTITLEMENT_OWN_CREDENTIAL_FILE,
+    ),
+    AgentAuthDeclaration(
+        backend=ACP_BACKEND_MUSE,
+        # Verified on disk rather than read off documentation: a signed-in Muse
+        # install keeps its credential at ``~/.config/muse/auth.json``, beside
+        # its ``settings.json`` and ``trust.json``. The subscription token and a
+        # pay-as-you-go key both resolve through that file (an operator may
+        # instead export ``META_API_KEY``, which is an environment value and so
+        # no leaf at all).
+        credential_leaves=(".config/muse/auth.json",),
+        # The Muse binary honours ``XDG_CONFIG_HOME`` (its default config home
+        # is the XDG one), which replaces ``.config`` rather than the token's
+        # parent, so the relocated file keeps both remaining segments.
+        home_override_env_vars=("XDG_CONFIG_HOME",),
+        override_relative_leaves=("muse/auth.json",),
+        # The one leaf the mask must spare: this harness is enforced, so the mask
+        # denies its child the whole credential floor, and the ``muse`` process
+        # the adapter spawns authenticates ITSELF from this file. The read gate
+        # still refuses the same leaf to the agent's file tools, so the two
+        # controls cover different readers rather than cancelling each other.
+        adapter_own_leaves=(".config/muse/auth.json",),
+        sign_in_remedy=(
+            "Muse is a separate app you sign into yourself — run muse in a "
+            "terminal on the gateway host and complete its sign-in, or set "
+            f"META_API_KEY for pay-as-you-go access. {HOST_TERMINAL_NOTE} "
+            "Neither is checked here: the harness reads them."
+        ),
+        signed_out_message=(
+            "Muse is not signed in. Run `muse` in a terminal on the gateway "
+            "host and complete its sign-in, or set META_API_KEY, then start a "
+            f"new chat. {HOST_TERMINAL_NOTE}"
+        ),
+        # Excluded deliberately: it signs in through its own credential file, so
+        # a ``kiro-cli logout`` says nothing about whether a running muse
+        # session is still authenticated.
         host_logout_retires_children=False,
         entitlement_source=ENTITLEMENT_OWN_CREDENTIAL_FILE,
     ),

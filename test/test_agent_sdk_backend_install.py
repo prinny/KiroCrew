@@ -1022,6 +1022,7 @@ class TestEndpointPayloadShape:
             "kas",
             "kiro",
             "mimocode",
+            "muse",
             "opencode",
             "pi",
             "strands",

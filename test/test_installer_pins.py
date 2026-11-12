@@ -28,6 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ACP_PIN_JSON = REPO_ROOT / "packaging" / "acp-adapters" / "package.json"
 ACP_PIN_LIB = REPO_ROOT / "scripts" / "lib" / "acp-adapter-pin.sh"
 ACP_PKG = "@agentclientprotocol/claude-agent-acp"
+MUSE_ACP_PKG = "@brokkai/muse-acp"
 INSTALLERS = ("install.sh", "setup.sh", "minimal_install.sh")
 
 # An npm global install that actually runs (not text inside echo/detail/warn).
@@ -58,6 +59,22 @@ def test_pinned_acp_version_is_exact_and_above_the_settings_floor() -> None:
     version = _pinned_version()
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), f"pin must be an exact x.y.z, got {version!r}"
     assert tuple(int(p) for p in version.split(".")) >= CLAUDE_ACP_SETTING_SOURCES_MIN_VERSION
+
+
+def test_pinned_muse_acp_version_is_exact_and_matches_the_harness_constant() -> None:
+    """The Muse adapter's pin and the spawn path's own constant are one fact.
+
+    ``MUSE_ACP_VERSION`` is what the install command the probe and the spawn
+    error name; the manifest is what Dependabot bumps. A drift between them
+    would install one release while the backend's measured claims name
+    another.
+    """
+    from kiro_crew.acp.harness.muse import MUSE_ACP_VERSION
+
+    data = json.loads(ACP_PIN_JSON.read_text(encoding="utf-8"))
+    version = data["dependencies"][MUSE_ACP_PKG]
+    assert re.fullmatch(r"\d+\.\d+\.\d+", version), f"pin must be an exact x.y.z, got {version!r}"
+    assert version == MUSE_ACP_VERSION
 
 
 def test_dependabot_refreshes_the_acp_pin_with_a_cooldown() -> None:
@@ -94,6 +111,21 @@ _needs_node = pytest.mark.skipif(
     os.name == "nt" or shutil.which("node") is None or shutil.which("sh") is None,
     reason="sources a POSIX shell helper that reads the manifest with node",
 )
+
+
+@_needs_node
+def test_spec_helper_prints_the_muse_pin_when_asked(tmp_path: Path) -> None:
+    proc = subprocess.run(
+        ["sh", "-c", '. "$1" && acp_adapter_spec "$2" "$3"', "sh", str(ACP_PIN_LIB), str(REPO_ROOT), MUSE_ACP_PKG],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    data = json.loads(ACP_PIN_JSON.read_text(encoding="utf-8"))
+    assert proc.stdout.strip() == f"{MUSE_ACP_PKG}@{data['dependencies'][MUSE_ACP_PKG]}"
 
 
 @_needs_node

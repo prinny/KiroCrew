@@ -189,6 +189,7 @@ from kiro_crew.acp.client_start import PROTOCOL_VERSION  # noqa: F401
 from kiro_crew.acp.client_start import PROTOCOL_VERSION_CLAUDE  # noqa: F401
 from kiro_crew.acp.client_start import PROTOCOL_VERSION_DEEPSEEK  # noqa: F401
 from kiro_crew.acp.client_start import PROTOCOL_VERSION_GOOSE  # noqa: F401
+from kiro_crew.acp.client_start import PROTOCOL_VERSION_MUSE  # noqa: F401
 from kiro_crew.acp.client_start import PROTOCOL_VERSION_OPENCODE  # noqa: F401
 from kiro_crew.acp.client_start import PROTOCOL_VERSION_PI  # noqa: F401
 from kiro_crew.acp.client_timeouts import _ACP_RESPAWN_BACKOFF_S  # noqa: F401
@@ -797,6 +798,24 @@ _EXPORTS_BY_OWNER: dict[str, tuple[str, ...]] = {
         "_GOOSE_BUILTIN_ARG",
         "_GOOSE_BUILTIN_DEVELOPER",
     ),
+    "kiro_crew.acp.harness.muse": (
+        "MUSE_ACP_BIN",
+        "MUSE_ACP_NPM_PKG",
+        "MUSE_ACP_VERSION",
+        "MUSE_BIN",
+        "MUSE_CLI_INSTALL_COMMAND",
+        "MUSE_INSTALL_COMMAND",
+        "_MUSE_ACP_PKG_ENTRY",
+        "_MUSE_ACP_DEP_MARKER",
+        "_ENV_MUSE_APPROVAL_MODE",
+        "_ENV_MUSE_CLI",
+        "_ENV_MUSE_ACP_BIN",
+        "_muse_acp_argv_cache",
+        "_muse_bin_cache",
+        "_resolve_vendored_muse_acp",
+        "_resolve_muse_acp_bin",
+        "_resolve_muse_bin",
+    ),
     "kiro_crew.acp.harness.pi": (
         "PI_ACP_BIN",
         "PI_ACP_NPM_PKG",
@@ -1006,6 +1025,24 @@ if TYPE_CHECKING:  # the forwarded names, visible to type checkers and IDEs
         _ENV_GOOSE_MODE,
         _GOOSE_BUILTIN_ARG,
         _GOOSE_BUILTIN_DEVELOPER,
+    )
+    from kiro_crew.acp.harness.muse import (  # noqa: F401
+        _ENV_MUSE_ACP_BIN,
+        _ENV_MUSE_APPROVAL_MODE,
+        _ENV_MUSE_CLI,
+        _MUSE_ACP_DEP_MARKER,
+        _MUSE_ACP_PKG_ENTRY,
+        MUSE_ACP_BIN,
+        MUSE_ACP_NPM_PKG,
+        MUSE_ACP_VERSION,
+        MUSE_BIN,
+        MUSE_CLI_INSTALL_COMMAND,
+        MUSE_INSTALL_COMMAND,
+        _muse_acp_argv_cache,
+        _muse_bin_cache,
+        _resolve_muse_acp_bin,
+        _resolve_muse_bin,
+        _resolve_vendored_muse_acp,
     )
     from kiro_crew.acp.harness.opencode import (  # noqa: F401
         _ENV_OPENCODE_CONFIG_CONTENT,

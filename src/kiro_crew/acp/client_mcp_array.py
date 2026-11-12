@@ -1361,6 +1361,52 @@ def _goose_session_mcp_servers(self: AcpClient) -> list:
     return servers
 
 
+def _muse_session_mcp_servers(self: AcpClient) -> list:
+    """MCP server array passed to a muse ``session/new`` / ``session/load``.
+
+    Empty by default, and the emptiness is a posture rather than a gap: the
+    muse mirror withholds Crew's servers -- the spec's and the pooled broker
+    stubs alike -- because MCP tools are not covered by Muse's write/shell
+    disable flags and the servers run unsandboxed (see
+    :mod:`kiro_crew.providers.mirrors.muse`). An operator who accepts that
+    surface opens the gate with ``KIROCREW_MUSE_MCP`` for the gateway
+    process, and the same mirror then places the translated array.
+
+    The translation lives in :mod:`kiro_crew.providers.mirrors.muse`. Keep
+    this method as the seam: an edition may override it, and a capability-set
+    test at the call site would skip that override. In-memory only: the spawn
+    path warms ``_session_mcp_cache`` off the loop (harness-parity H13).
+
+    The count is logged here because it is the only greppable fact a session
+    leaves about its MCP surface; for this backend the line also names the
+    gate, so an empty array reads as the declared posture rather than as a
+    degraded session.
+    """
+    from kiro_crew.providers.mirrors.muse import muse_mcp_opted_in
+
+    if getattr(self, "_side_read_only", False):
+        # A Side Chat session mounts no MCP server, as on claude: READ_ONLY
+        # refuses every MCP call, and a mounted server would hold powers the
+        # read-only posture does not govern.
+        return []
+    servers = self._session_mcp_servers()
+    if muse_mcp_opted_in():
+        logger.info(
+            "muse session MCP: %d server(s) placed on the session array "
+            "(KIROCREW_MUSE_MCP gate open) [session=%s]",
+            len(servers),
+            self._session_id,
+        )
+    else:
+        logger.info(
+            "muse session MCP: no servers placed -- Crew's MCP servers are "
+            "withheld from muse sessions by default (KIROCREW_MUSE_MCP opens "
+            "the gate) [session=%s]",
+            self._session_id,
+        )
+    return servers
+
+
 def _invalidate_session_mcp_projection(self: AcpClient) -> None:
     """Drop the MCP array, the spec snapshot that authorized it, and the
     member-projection verdict recorded against it.

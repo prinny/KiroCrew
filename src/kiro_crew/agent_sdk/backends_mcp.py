@@ -26,6 +26,7 @@ from kiro_crew.agent_sdk.backends import (
     ACP_BACKEND_KAS,
     ACP_BACKEND_KIRO,
     ACP_BACKEND_MIMOCODE,
+    ACP_BACKEND_MUSE,
     ACP_BACKEND_OPENCODE,
     ACP_BACKEND_PI,
     ACP_BACKEND_STRANDS,
@@ -165,6 +166,7 @@ ACP_BACKENDS_SESSION_MCP_ARRAY: FrozenSet[str] = frozenset(
         ACP_BACKEND_PI,
         ACP_BACKEND_COPILOT,
         ACP_BACKEND_STRANDS,
+        ACP_BACKEND_MUSE,
     }
 )
 
@@ -419,6 +421,13 @@ ACP_BACKENDS_UNASKED_NATIVE_TOOLS = frozenset({ACP_BACKEND_MIMOCODE})
 # session's own directory WITHOUT a permission request (measured -- its ``view``
 # ran unasked), so ``_deny_zero_tools`` never sees that call and a total ban cannot
 # be honoured.
+#
+# muse is NOT a member on the same shape of ground: it is mirrored,
+# ``AcpClient``-served and its ``Routing.SESSION_CONFIG`` is enforced, but the
+# posture Crew arms is ``promptUnmatched`` -- every call Muse's own permission
+# rules do NOT match asks, and a call they DO match (an operator's allow rules
+# in their Muse settings) runs without a permission request, so
+# ``_deny_zero_tools`` never sees that call and a total ban cannot be honoured.
 #
 # strands is a member on pi's grounds: Crew's gate module raises an interrupt for
 # EVERY tool call of every Strands ``Agent`` in the process -- built-in, the

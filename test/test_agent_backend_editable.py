@@ -18,6 +18,7 @@ from kiro_crew.acp_backends import (
     ACP_BACKEND_KAS,
     ACP_BACKEND_KIRO,
     ACP_BACKEND_MIMOCODE,
+    ACP_BACKEND_MUSE,
     ACP_BACKEND_OPENCODE,
     ACP_BACKEND_PI,
     ACP_BACKEND_STRANDS,
@@ -165,6 +166,7 @@ def test_baseline_ships_every_known_backend():
             ACP_BACKEND_COPILOT,
             ACP_BACKEND_STRANDS,
             ACP_BACKEND_MIMOCODE,
+            ACP_BACKEND_MUSE,
         ]
     )
     assert baseline == sorted(acp_backends.ACP_BACKENDS_KNOWN - NOT_SHIPPED_SELECTABLE)

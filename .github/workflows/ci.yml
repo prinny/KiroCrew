@@ -2682,6 +2682,14 @@ jobs:
           rm .harness-bin/goose.tar.bz2
           test -x .harness-bin/goose
 
+      # The Muse backend's agent is not an npm package: the muse-acp adapter
+      # is (it is in the manifest above, pinned like the others), and the
+      # `muse` CLI the adapter spawns installs from Meta's own installer into
+      # ~/.local/bin -- a directory both Crew's resolver and the adapter's own
+      # fallback search, so no override is needed for the CLI half.
+      - name: Install the Muse
+        run: curl -fsSL https://dev.meta.ai/install.sh | bash
+
       # The Strands harness runs a Python project environment of its own. Installed
       # from a hash-locked file (strands-requirements.txt, compiled from
       # strands-requirements.in), so every package in the closure is the one the
@@ -2743,6 +2751,7 @@ jobs:
               (gate.CLAUDE_AGENT_ACP_PACKAGE, gate.MEASURED_CLAUDE_AGENT_ACP_VERSION),
               (gate.DSH_PACKAGE, gate.MEASURED_DSH_VERSION),
               (gate.STRANDS_CLI_PACKAGE, gate.MEASURED_STRANDS_CLI_VERSION),
+              (gate.MUSE_ACP_PACKAGE, gate.MEASURED_MUSE_ACP_VERSION),
           ):
               manifest = modules / package / "package.json"
               found = json.loads(manifest.read_text(encoding="utf-8"))["version"]
@@ -2777,6 +2786,10 @@ jobs:
           STRANDS_BIN: ${{ github.workspace }}/test/real_adapters/node_modules/.bin/strands
           STRANDS_PROBE_VENV: ${{ github.workspace }}/test/real_adapters/.strands-venv
           GOOSE_BIN: ${{ github.workspace }}/test/real_adapters/.harness-bin/goose
+          # The Muse backend's adapter, named explicitly for the same reason
+          # pi's is: the lane measures the entry it installed, not whatever a
+          # runner image happens to ship.
+          MUSE_ACP_BIN: ${{ github.workspace }}/test/real_adapters/node_modules/@brokkai/muse-acp/bin/muse-acp.cjs
         run: |
           # As in backend-test: the `python` matcher annotates any traceback in the
           # log, including one printed inside a warning, and never matches a pytest
@@ -2791,6 +2804,7 @@ jobs:
             test/test_per_tool_mcp_deny_single_binary.py \
             test/test_pi_gate_extension_mcp.py \
             test/test_pi_real_adapter.py \
+            test/test_muse_real_adapter.py \
             test/test_real_adapter_harness_probe.py
 
       # A pin bump must re-run the live captures taken against the old release, not

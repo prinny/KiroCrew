@@ -541,6 +541,7 @@ EXPECTED_AGENT_NAMES: dict[str, frozenset[str]] = {
     "pi": frozenset({"pi-acp"}),
     "deepseek": frozenset({"deepseek-harness-acp"}),
     "copilot": frozenset({"Copilot"}),
+    "muse": frozenset({"muse-acp"}),
     "strands": frozenset({"@strands-agents/cli"}),
     # MiMo Code keeps its parent's agentInfo.name, so the name alone cannot tell a
     # mimocode capture from an opencode one; the header's backend and its 0.1.x

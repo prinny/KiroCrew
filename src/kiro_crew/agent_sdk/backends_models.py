@@ -28,6 +28,7 @@ from kiro_crew.agent_sdk.backends import (
     ACP_BACKEND_KAS,
     ACP_BACKEND_KIRO,
     ACP_BACKEND_MIMOCODE,
+    ACP_BACKEND_MUSE,
     ACP_BACKEND_OPENCODE,
     ACP_BACKEND_PI,
     ACP_BACKEND_STRANDS,
@@ -62,6 +63,13 @@ logger = logging.getLogger("kiro_crew.agent_sdk.backends")
 # ``[provider, model]`` pair -- ``["deepseek-official", "deepseek-v4-flash"]`` -- so
 # the value is passed through exactly as advertised rather than parsed. That is what
 # ``ACP_BACKENDS_ADVERTISED_MODEL_SELECTION`` membership is for.
+#
+# ``ACP_BACKEND_MUSE`` is a member on the same kind of evidence: the muse-acp
+# adapter's ``session/new`` result advertises a ``model`` select whose
+# ``currentValue`` is the session's Muse model id, and that select is the
+# channel a switch travels down -- its ``session/new`` ``models`` block is
+# empty, so the select is the only model channel it has. Measured on
+# @brokkai/muse-acp 0.21.0 driving Muse 1.4.13.
 ACP_BACKENDS_MODEL_VIA_CONFIG_OPTION = frozenset(
     {
         ACP_BACKEND_CLAUDE,
@@ -71,6 +79,7 @@ ACP_BACKENDS_MODEL_VIA_CONFIG_OPTION = frozenset(
         ACP_BACKEND_GOOSE,
         ACP_BACKEND_DEEPSEEK,
         ACP_BACKEND_MIMOCODE,
+        ACP_BACKEND_MUSE,
     }
 )
 
@@ -166,6 +175,11 @@ def model_refusal_phrase(backend: str) -> str:
 # ``<provider>/<model>/<variant>`` (``acp/agent.ts:1686-1692``; seen live as
 # ``xiaomi/mimo-v2.6-flash/low`` beside ``xiaomi/mimo-v2.6-flash``), so the level is
 # chosen with the model and there is no separate option for this channel to write.
+# muse IS a member, under its own id ``reasoning_effort`` (the spelling
+# ``EFFORT_CONFIG_OPTION_IDS`` records): the same captured ``session/new``
+# result that carries its ``model`` select carries a ``reasoning_effort``
+# select offering default, minimal, low, medium, high, xhigh and max.
+# Measured on @brokkai/muse-acp 0.21.0 driving Muse 1.4.13.
 ACP_BACKENDS_EFFORT_VIA_CONFIG_OPTION = frozenset(
     {
         ACP_BACKEND_CLAUDE,
@@ -175,6 +189,7 @@ ACP_BACKENDS_EFFORT_VIA_CONFIG_OPTION = frozenset(
         ACP_BACKEND_KAS,
         ACP_BACKEND_OPENCODE,
         ACP_BACKEND_PI,
+        ACP_BACKEND_MUSE,
     }
 )
 
@@ -226,6 +241,7 @@ EFFORT_CONFIG_OPTION_IDS: Mapping[str, str] = {
     ACP_BACKEND_GOOSE: "thinking_effort",
     ACP_BACKEND_KAS: "effortLevel",
     ACP_BACKEND_PI: "thought_level",
+    ACP_BACKEND_MUSE: "reasoning_effort",
 }
 
 #: The spelling used by every backend without a row in
@@ -489,6 +505,7 @@ ACP_BACKENDS_ADVERTISED_MODEL_SELECTION = frozenset(
         ACP_BACKEND_DEEPSEEK,
         ACP_BACKEND_COPILOT,
         ACP_BACKEND_MIMOCODE,
+        ACP_BACKEND_MUSE,
     }
 )
 
@@ -653,6 +670,12 @@ _MODEL_REGISTRY_NAMESPACE_BY_BACKEND: dict = {
     # strands gets its own key: its ids are ``provider/model`` strings (or bare
     # Bedrock ids) the Strands CLI resolves, a vocabulary no other harness serves.
     ACP_BACKEND_STRANDS: "strands",
+    # muse gets its own key: its ids are Muse's own model names
+    # (``muse-wonder-1.0``, ``muse-ember-1.0`` ...) advertised on the ``model``
+    # config option of its ``session/new`` result, a vocabulary no other harness
+    # serves, so sharing the ``acp`` bucket would let a muse session overwrite
+    # what the picker offers for a kiro-family harness.
+    ACP_BACKEND_MUSE: "muse",
 }
 
 
