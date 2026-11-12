@@ -62,6 +62,22 @@ def meta_api_secret_plaintext(raw: object) -> bool:
     return isinstance(raw, str) and raw != "" and not raw.startswith(SECRET_URI_PREFIX)
 
 
+def bedrock_ref_plaintext(raw: object) -> bool:
+    """Whether an ``agent.bedrock_*_ref`` value is a plaintext credential.
+
+    The three Bedrock credential-reference fields
+    (``bedrock_access_key_id_ref``, ``bedrock_secret_access_key_ref``,
+    ``bedrock_session_token_ref``) each hold ONE ``secret://<vault
+    name>`` reference (or are empty, which defers to the rest of the
+    AWS chain), never credential material: the same single-string rule
+    as :func:`meta_api_secret_plaintext`, enforced at WRITE time by
+    the publish floor in ``loader_document`` and repeated by the
+    native provider at start, failing closed. Returns a bool only —
+    never the value.
+    """
+    return isinstance(raw, str) and raw != "" and not raw.startswith(SECRET_URI_PREFIX)
+
+
 def coerce_deepseek_env(raw: object) -> dict[str, str]:
     """Normalize ``agent.deepseek_env`` to a plain env-var-name -> value mapping.
 

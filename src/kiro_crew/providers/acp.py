@@ -78,6 +78,7 @@ from kiro_crew.acp.types import (  # noqa: F401
     ACP_BACKENDS_SESSION_SHARING,
     ACP_BACKENDS_TOOL_SEARCH_OVERLAY,
     EVENT_COMPACTION_STATUS,
+    PROVIDER_LABEL_BEDROCK,
     PROVIDER_LABEL_BY_BACKEND,
     PROVIDER_LABEL_CLAUDE,
     PROVIDER_LABEL_DEFAULT,
@@ -1448,6 +1449,15 @@ def _is_meta_api_provider(provider: Any) -> bool:
     return isinstance(provider, MetaApiProvider)
 
 
+def _is_bedrock_provider(provider: Any) -> bool:
+    """Type check for the fork's native Bedrock provider, kept lazy
+    across the providers package's import graph (the same pattern as
+    :func:`_is_meta_api_provider`)."""
+    from kiro_crew.providers.bedrock import BedrockProvider
+
+    return isinstance(provider, BedrockProvider)
+
+
 def _provider_shape_backend(provider: Any) -> Any:
     """The backend of the two PROVIDER shapes, or ``None``.
 
@@ -1485,13 +1495,16 @@ def provider_label(provider: Any) -> str:
     the kiro label, and the map then prunes its id for want of a kiro
     transcript.
 
-    The fork's native Meta provider is answered first, by TYPE: it has no
-    ACP client whose backend string could be read, and letting it fall
-    through would persist a native session under the ACP label — the exact
-    misrouting ``PROVIDER_LABEL_META_API`` exists to prevent.
+    The fork's native providers are answered first, by TYPE: neither has
+    an ACP client whose backend string could be read, and letting one
+    fall through would persist a native session under the ACP label —
+    the exact misrouting ``PROVIDER_LABEL_META_API`` and
+    ``PROVIDER_LABEL_BEDROCK`` exist to prevent.
     """
     if _is_meta_api_provider(provider):
         return PROVIDER_LABEL_META_API
+    if _is_bedrock_provider(provider):
+        return PROVIDER_LABEL_BEDROCK
     backend = _provider_shape_backend(provider)
     if backend is None:
         return PROVIDER_LABEL_DEFAULT
