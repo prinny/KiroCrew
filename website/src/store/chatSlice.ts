@@ -32,7 +32,7 @@ import { initialState, type ChatState } from './chat/state'
 import type { AgentSwitchNotice } from '../utils/agentSwitchFeedback'
 import { filterMessages, isUnsafeKey, safeKey } from './chat/wire'
 import { ensureMsgId, finalizeTrailingStreaming, floorForGen, isRedeliveredMessage, mintMsgId, reconcileOptimisticEcho } from './chat/transcript'
-import { OLDER_PAGE_LIMIT, OLDER_WALK_PAGE_LIMIT, claimOlderFetchAbort, isSupersededPagingRejection, releaseOlderFetchAbort } from './chat/paging'
+import { OLDER_PAGE_LIMIT, OLDER_WALK_PAGE_LIMIT, abortActiveOlderFetch, claimOlderFetchAbort, isSupersededPagingRejection, releaseOlderFetchAbort } from './chat/paging'
 import { reinsertThinkingOrphans } from './chat/thinking'
 import { isPendingCoordinatorApproval } from './chat/coordinatorApprovals'
 import { pruneDeliveredAttempts } from './chat/sendAttempts'
@@ -327,6 +327,8 @@ function applyNonActiveFrame(
     return
   }
   if (role === 'assistant') {
+    // An unwatched slot gets no chunk after a compaction; its result notice ends it.
+    if (effectiveKind === 'compaction' && !meta?.notice && run.state === 'compacting') { setRunState(run, 'streaming'); syncOriginRun(state, slot, 'streaming') }
     for (let i = msgs.length - 1; i >= 0; i--) {
       if (msgs[i].role === 'streaming') {
         msgs[i].role = 'assistant'; msgs[i].content = content; msgs[i].rawText = content; if (ts) msgs[i].ts = ts
@@ -690,6 +692,8 @@ export const deleteSlot = createAsyncThunk<
       const prev = !discard && ((landing !== key ? landing : null)
         || root.chat.slotHistory.filter(k => k !== key && sameSurface.has(k)).pop()
         || root.dashboard.slots.filter(s => s.key !== key && sameSurface.has(s.key)).map(s => s.key)[0])
+      // Supersede an older page in flight, as a switch does: it would clear the next chat's loading flag.
+      abortActiveOlderFetch()
       // Closing a chat is not choosing the landing: the page picks it. Both
       // moves count as automatic, so a create or fork still pending from
       // before the close opens its new session when it resolves, while a
@@ -1351,6 +1355,7 @@ export {
   abortActiveOlderFetch, type CoverageRow,
 } from './chat/paging'
 export type { ChatState, FollowupItem, SideMessage, SideQueueEntry, SideSendStatus, SideStandingNotice, SideState, SlotState, SlotStatusDetail, WorkflowRunProgress } from './chat/state'
+export { hasSavedActivityOpen } from './chat/state'
 export { FOLDER_SUGGESTION_MAX_TURNS, capturePendingAskId, isAnsweredQuestionEnding, pendingQuestionFor, shouldResolveAskOnSend } from './chat/composerCards'
 export { mcpAppKey } from './chat/mcpApps'
 export {

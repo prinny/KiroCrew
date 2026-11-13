@@ -146,8 +146,10 @@ export const PANEL_TAB_MAP: Record<string, PanelTarget> = {
   // SecurityPanel.tsx mounts as its banner. No extractable primitive; mapped so
   // the hand-written `security.config-pending` entry stays anchored to its source.
   'SecurityPanelConfigPending.tsx': 'security',
-  'ConnectionsPanel.tsx': 'connections',
+  'OAuthAppPanel.tsx': 'connections',
   'SecretsPanel.tsx': 'secrets',
+  // Draws the tab while the Secrets vault redesign preview is off.
+  'SecretsPanelLegacy.tsx': 'secrets',
   'NotificationsPanel.tsx': 'notifications',
   'ShortcutsPanel.tsx': 'shortcuts',
   // Added upstream (auto-skill generation) without a mapping here, so its two
@@ -272,6 +274,8 @@ export const PANEL_TAB_MAP: Record<string, PanelTarget> = {
   'ChatPanelLinkPatternsEditor.tsx': { tab: 'chat', params: { sub: 'transcript' } },
   // The default-folder picker ChatPanel's Sessions page mounts.
   'DefaultSessionFolderSetting.tsx': { tab: 'chat', params: { sub: 'sessions' } },
+  // The per-creator session limit ChatPanel's Sessions page mounts.
+  'SessionsPerCreatorSetting.tsx': { tab: 'chat', params: { sub: 'sessions' } },
   // The per-app session mutes NotificationsPanel's Sources page mounts. Each row
   // is labelled with the app's own name, a dynamic label the extractor skips;
   // mapped so a static control added to it lands on the Sources deep link.
@@ -532,6 +536,8 @@ export function panelRoots(srcDir: string): ExtractRoot[] {
     { dir: path.join(srcDir, 'pages', 'developer'), file: 'KasBundleCard.tsx' },
     { dir: path.join(srcDir, 'pages', 'developer'), file: 'KiroSignInCard.tsx' },
     { dir: path.join(srcDir, 'pages', 'chat', 'command-center'), file: 'AutomaticCardSetting.tsx' },
+    // A Connections card's OAuth app part, opened in place on Settings → Connections.
+    { dir: path.join(srcDir, 'pages', 'connections'), file: 'OAuthAppPanel.tsx' },
   ]
 }
 

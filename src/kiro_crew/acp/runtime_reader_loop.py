@@ -8,10 +8,11 @@ binds it by name, so it reads and writes the runtime's own state on the instance
 of the method on the class or on an instance reaches every caller.
 
 Instance fields written: ``_answer_tasks``, ``_last_activity``, ``_load_replay_frames``,
-``_pending_requests``, ``_routed_requests``, ``_session_activity_at``.
+``_pending_requests``, ``_routed_requests``, ``_session_activity_at``,
+``_unrouted_child_frames``.
 
 Instance fields read: ``_acp_backend``, ``_announced_children``, ``_announced_overflow``,
-``_kas_host_auth``, ``_launch_cwd_roots``,
+``_fold_mcp_frame``, ``_kas_host_auth``, ``_launch_cwd_roots``,
 ``_map_launch_cwd_paths``, ``_max_answer_tasks``,
 ``_mcp_secret_server``, ``_native_skill_projection``, ``_process``,
 ``_session_inits_in_flight``, ``_session_queues``, ``_start_collectors``,
@@ -230,6 +231,7 @@ async def _route_owned_child_frame(
     # activity, which keeps the owner off the idle sweep.
     self._session_activity_at[owner] = time.monotonic()
     if msg.id is not None and msg.is_method(METHOD_REQUEST_PERMISSION) and not _owner_turn_active:
+        self._unrouted_child_frames += 1
         await self._spawn_answer_task(
             msg,
             session_id,
@@ -572,6 +574,11 @@ async def _reader_loop(self: AcpRuntime) -> None:
             _progress = getattr(self, "mcp_connect_progress", None)
             if _progress is not None:
                 _progress.observe(msg)
+            if session_id:
+                # The session's MCP report follows the frame HERE, once, whoever
+                # reads it off the session's queue later and whether or not a
+                # turn is running.
+                self._fold_mcp_frame(session_id, msg)
             if not session_id and _subagent_list_update and msg.method == _subagent_list_update:
                 # Snapshot backend-internal subagent session ids before the
                 # broadcast below delivers the frame to the UI consumers.
@@ -673,6 +680,9 @@ async def _reader_loop(self: AcpRuntime) -> None:
                     # cost this child its approval card, and that is the one
                     # thing an operator can act on (the two counts in the
                     # snapshot warning above are the same signal).
+                    # Answered here, so it reaches no session: counted like a
+                    # dropped child update (``unrouted_child_frames``).
+                    self._unrouted_child_frames += 1
                     await self._spawn_answer_task(
                         msg,
                         session_id,

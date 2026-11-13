@@ -998,6 +998,9 @@ async def _wait_for_response(
         # Notification (has method, no id) — buffer for drain.
         if msg.method and msg.id is None:
             self._mcp_notifications.append(msg)
+            # No turn reads this buffer, and the frame may be the one that
+            # dropped the conversation's pictures (a late compaction or clear).
+            self._forget_sent_images()
             logger.debug("Buffered notification: %s (req=%d)", msg.method, req_id)
             continue
         # Server→client request (method AND id) or a foreign-id response
@@ -1137,8 +1140,9 @@ async def _drain_notifications(
             # process, so there is no co-tenant whose frame could arrive
             # here. Stated rather than defaulted so a transport that gains
             # tenants has to answer the question instead of inheriting a
-            # yes.
-            self._mcp_report.record_frame(msg, owned=True)
+            # yes. ``fold_frame`` is the owned fold, and tells the report's
+            # reader when this frame changed it.
+            self._mcp_report.fold_frame(msg)
         name = ""
         if isinstance(msg.params, dict):
             name = msg.params.get("name") or msg.params.get("serverName") or ""
@@ -1184,7 +1188,7 @@ async def _drain_notifications(
             _capture_oauth(read_msg)
             _capture_config_update(read_msg)
             _capture_agent_switched(read_msg)
-            self._mcp_report.record_frame(read_msg, owned=True)
+            self._mcp_report.fold_frame(read_msg)
             if "mcp" in (read_msg.method or ""):
                 name = ""
                 if isinstance(read_msg.params, dict):

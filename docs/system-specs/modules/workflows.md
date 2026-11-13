@@ -159,6 +159,11 @@ Semantics, from `runner._RunContext.agent`:
   recorded in `agent_errors[call_index]` and on the `agent_finished` event's
   `error` field. A dead agent therefore does not fail the run
   (`test_workflows_runner.py::test_failed_agent_resolves_to_none_not_run_failure`).
+  That holds for a non-string prompt too (a dict row, a number): the display
+  label is built from `str(prompt)`, and the prompt reaches `agent_fn` unchanged
+  inside the per-call `try`. The admitted wrapper (`agent_pool.admitted_agent_fn`)
+  records `prompt_chars` as `len(str(prompt))`, measured before it takes a runner
+  lane slot, so a non-string prompt cannot raise while the slot is held.
 - Three distinguishable `None` reasons are recorded, because "no payload" alone
   makes a post-mortem impossible: `"agent returned no result"`, `"no schema-valid
   result after bounded re-asks"`, and an exception rendered by
@@ -188,15 +193,18 @@ the configured pool agent.
 passes, so it outranks the crew pin and the configured default. It must be one of
 `kiro_crew.effort.EFFORT_LEVELS`; any other value fails the step
 (`WorkflowEffortInvalid`) before a session is allocated. Unset (`None` or `""`)
-passes nothing and the session resolves its effort as before. Effort applies
-when the step's session starts: the pooled adapter keys its warm sub-pools on
-`(agent, model, cwd, effort)` so a reused worker always runs at the effort the
-call asked for, and a named `session=` chain keeps the effort its first step
-started it with. A warm reuse's `new_conversation()` re-applies the model but,
-except on claude, not the effort, and a harness that takes effort as a
-per-session config option (KAS, Codex) pushes it only at cold start, so the
-worker pushes its effort again through `provider.change_effort` after each
-cheap reset; a push that raises takes
+passes nothing and the session resolves its effort as before. The override
+applies when the step's session starts: the pooled adapter keys its warm
+sub-pools on `(agent, model, cwd, effort)` so a reused worker always runs at the
+effort the call asked for. A named `session=` chain starts at its first step's
+effort, and each later step that names an effort pushes it onto the live session
+through `provider.change_effort` before its turn, on whichever backend the chain
+runs; a level the session does not offer (`accepts_effort_level` returns False)
+is skipped as on a cold start, and a push that raises fails the step. A warm
+reuse's `new_conversation()` re-applies the model but, except on claude, not the
+effort, and a harness that takes effort as a per-session config option (KAS,
+Codex) pushes it only at cold start, so the worker pushes its effort again
+through `provider.change_effort` after each cheap reset; a push that raises takes
 the hard-reset fallback, which cold-starts with the override, except a level
 kiro-cli refuses (`AcpCommandRefused.command_refused`): the worker logs a warning and keeps
 its conversation, because a cold start would only replay the level. There is no
@@ -236,7 +244,13 @@ all, and returns results in input order. A task may be a zero-arg thunk
 both are accepted deliberately, because Python authors reach for the latter out of
 `gather(*coros)` habit and a coroutine is not callable, which would otherwise turn
 every task into `None`. A task that raises resolves to `None` and the call itself
-never raises, so callers filter falsy entries. The one exception is
+never raises, so callers filter falsy entries. The runner records why in a `log`
+event, `parallel task <i> failed: <reason>` (`pipeline item <i> failed: <reason>`
+for a pipeline stage), with the reason bounded and redacted by
+`describe_agent_error`; without it a run of all-`None` results read `finished`
+with no trace of the error. At most 20 such events are written per run, the last
+saying further failed tasks are not logged, so a pipeline over thousands of bad
+items cannot flood the event stream and its checkpoints. The one exception is
 `BudgetExceeded`: it is held until every task has settled, so no sibling outlives
 the run, then raised, so a run ceiling hit inside a fan-out still ends the run. An
 empty list returns `[]`.
@@ -541,7 +555,7 @@ agent_finished, run_finished`.
 | `author` | author-in-run raised, or produced no valid script |
 | `validate` | static validation failed, or the script references a ctx primitive this host did not wire |
 | `ceiling` | wall-clock timeout, `BudgetExceeded`, or the per-run agent-call cap |
-| `exec` | the script itself raised |
+| `exec` | the script itself raised, a `BaseException` included (it is in the script's builtins); the background driver also marks the run `failed` on one, so a script's `BaseException` no longer leaves the run `running` with a Cancel that reports success on nothing. A cancel still ends the run `cancelled`; a process `KeyboardInterrupt` or `SystemExit` is recorded, then re-raised; a `GeneratorExit` (a coroutine being closed) is re-raised with nothing awaited |
 | `interrupted` | the script returned, but a `ctx.agent()` step's turn was stopped from outside (`WorkflowStepInterrupted`); `error` is that step's error |
 
 ### Persistence of the stream
@@ -585,13 +599,27 @@ Static rejections:
   rejected with a specific error. The runner calls `workflow(ctx)` only, so any
   further parameter, positional or keyword-only, must have a default
   (`*args` / `**kwargs` are fine); one without is refused by name.
-- **Size:** `MAX_SCRIPT_BYTES` = 262144 bytes of UTF-8.
+- **Size:** `MAX_SCRIPT_BYTES` = 262144 bytes of UTF-8. A source holding an unpaired
+  surrogate (JSON allows `"\ud800"`) cannot be encoded at all, so it is a
+  validation error, `script contains an unpaired surrogate character`, rather than
+  a `UnicodeEncodeError` the routes would turn into a 500.
 - **Undefined names** (`_check_undefined_names`, via `symtable`): any referenced
   global that is not a safe builtin, not `ctx`, and not bound at module level is
   reported, so a script using `json` or an unlisted exception type is caught at
   authoring time instead of dying mid-run with `NameError`. Conservative by design:
   only names the symbol table marks as referenced-global-and-never-assigned are
   flagged, and walrus / `global` bindings are treated as bound.
+- **Compile-stage syntax errors**: `ast.parse` only parses, so `validate` also
+  compiles the parsed tree (nothing runs). `return` / `await` outside a function
+  and a `nonlocal` with no binding are reported as `syntax error: ...`; the runner
+  compiles the same way, so each such script already failed at `exec`, and
+  authoring now regenerates it instead of launching a run that cannot start.
+  These errors are also kept apart as `ValidationResult.compile_errors`. A run
+  (`start`, `author`, `rerun_subtree`) refuses them like any error; a save path
+  (`save_definition`, `update_definition`, `promote_run_definition` and the
+  workflow save/update change card) checks only `save_errors`, so it keeps saving
+  such a script as it did before `validate` reported them, and the reply carries
+  them as `warnings` with a log line.
 - **DSL-contract misuse** (`_DslContractVisitor`). These are structurally legal
   Python, so the security pass and the name pass both wave them through; only a
   contract-aware pass catches them. A type checker would too, but mypy is not
@@ -781,10 +809,24 @@ tokens `Infinity`/`NaN` and reads them back, but the dashboard's `JSON.parse`
 rejects the whole snapshot ("Could not load snapshot") while the run itself
 succeeds. `None` matches what a browser's `JSON.stringify` writes.
 
+Event data and the terminal `result` go one step further through
+`kiro_crew.strict_json.json_plain`: a value `json` cannot write at all (a set, a
+date, any object) becomes its `str`, and so does a dict key that is not a string,
+number, bool or `None` (a tuple). Without it a set in the result made every
+`GET /api/workflows/runs/{id}` a 500 while the store's `default=str` wrote the
+text, and a tuple key failed every checkpoint, so a restart read the last
+"running" checkpoint back as `failed: interrupted` and the result was lost. A
+value `json` already writes is returned as the same object, and a mapping whose
+text key would collide with another key, as Python or as the JSON key it is
+written as (the text `"1"` and the number `1`), becomes its `str` whole, so no
+entry is dropped. The built-in Workflows app's `/run` handler returns its result through
+`json_plain` too.
+
 `RunHandle` holds `run_id`, `name`, `status`, the growing `events` list, `result`,
 `error`, `author`, `session_key`, `source`, `args`, `agent_results`,
 `agent_errors`, exact saved-definition provenance, optional `derived_from`
-ancestry, and the driving `task`. Statuses: `running`, `paused`, `finished`,
+ancestry, the launch limits `timeout_secs` and `budget_total` (stored, and read
+back as `None` from an older record that lacks them), and the driving `task`. Statuses: `running`, `paused`, `finished`,
 `failed`, `cancelled`; `running` and `paused` are active states.
 
 Two distinct serializations:
@@ -1372,7 +1414,8 @@ remains an exact saved invocation and cannot be promoted into a duplicate or
 appended as a revision. An
 edited rerun clears that saved-definition identity because its submitted source
 is no longer the exact saved revision, and keeps the former id and revision only
-as `derived_from` ancestry; any later rerun carries that ancestry forward.
+as `derived_from` ancestry; any later rerun carries that ancestry forward. A rerun also runs under the prior run's own `timeout_secs` and
+`budget_total`; a `timeout_secs` the caller passes still wins.
 
 TaskRunner applies the same rule to saved task plans. A user edit or automatic
 replan clears the run's exact definition id, slug, and revision before publishing

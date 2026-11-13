@@ -47,6 +47,13 @@ function createManagedLane({
   gatewayArm = null,
   // A start-time apply that failed (armed-apply.js): shown once, as an install error.
   startupApplyError = null,
+  // Is the first version strictly newer than the second? null when it cannot tell.
+  isNewerVersion = () => null,
+  // Is the gateway behind `gatewayArm` the one this app runs on this machine? The
+  // arm sync judges an arm against THIS app's version, which only means something
+  // for that gateway; a remote crew's arm is its own business. A host that injects
+  // none owns nothing, so the sync leaves every arm alone.
+  isOwnGateway = async () => false,
 }) {
   // Whether a security policy provider owns this install's updates right now.
   // A live verdict is also recorded in the app's store, so a start-time apply
@@ -108,6 +115,7 @@ function createManagedLane({
   let stagedVersion = null; // version the user took Download for (the ready dialog's version)
   let managedQuitArmed = false; // is a before-quit auto-apply handler installed?
   let managedInstalling = false; // an apply is in progress — pause the poll
+  let relaunchScheduled = false; // a Restart now already asked the app to come back
   let sessionEndWindow = null; // window holding the session-end notice listener
 
   // Mirror the feed lane's emitError renderer contract: a failure WITH ITS
@@ -151,7 +159,21 @@ function createManagedLane({
   // user's next start is the new version. An apply that was interrupted or that
   // failed leaves the arm in place, and the next app start finishes it before
   // the gateway spawns (startup-apply.js).
+  // What the app does once the quit-time apply ends: a Restart now scheduled a
+  // relaunch before the quit, any other quit just exits.
+  const exitOutcome = () => (relaunchScheduled ? "relaunching" : "exiting without relaunch");
+
   const managedInstallOnQuit = (event) => {
+    // A further quit request while the apply is in progress (main.js is already
+    // stopping the gateway, and a second Cmd+Q, tray Quit or window close lands
+    // here): hold it. The listener was registered with app.once, so without the
+    // re-arm below Electron would exit mid-stop and skip the apply. Every end of
+    // the apply is an explicit app.exit, so nothing needs to release the hold.
+    if (managedInstalling) {
+      event.preventDefault();
+      app.once("before-quit", managedInstallOnQuit);
+      return;
+    }
     const appliedVersion = versionToApplyOnQuit();
     // Nothing pending (a later check cleared it, or it was already applied):
     // let the quit proceed normally.
@@ -167,8 +189,9 @@ function createManagedLane({
       return;
     }
     event.preventDefault();
+    managedInstalling = true;
+    app.once("before-quit", managedInstallOnQuit);
     (async () => {
-      managedInstalling = true;
       emit("installing", { version: appliedVersion });
       try { if (onInstallDispatched) onInstallDispatched(); } catch { /* advisory */ }
       // Read the gateway's own armed record while it is still up, so an arm made
@@ -202,11 +225,11 @@ function createManagedLane({
       const result = await runArmedApply({ exec, version, log });
       if (result.ok) {
         updateArm.clear();
-        log.info("[update] managed apply on quit finished - exiting without relaunch");
+        log.info(`[update] managed apply on quit finished - ${exitOutcome()}`);
       } else {
         // The arm stays: the next app start runs the apply again before the
         // gateway spawns, and shows the error if that fails too.
-        log.error(`[update] managed apply on quit did not finish (${result.message}) - the arm stays, exiting without relaunch`);
+        log.error(`[update] managed apply on quit did not finish (${result.message}) - the arm stays, ${exitOutcome()}`);
       }
       app.exit(0);
     })();
@@ -226,10 +249,43 @@ function createManagedLane({
     // A governed install's arm belongs to the policy provider; main would never
     // apply it, so it does not adopt (or withdraw) one.
     if (governed()) return;
+    // Another crew's gateway is neither adopted from nor disarmed.
+    let own = false;
+    try { own = (await isOwnGateway()) === true; } catch { own = false; }
+    if (!own) return;
     let v = null;
-    try { v = await gatewayArm.armedVersion(); } catch { v = null; }
+    let armedAt = null;
+    try {
+      if (typeof gatewayArm.armedRecord === "function") {
+        const rec = await gatewayArm.armedRecord();
+        if (rec) { v = rec.version; armedAt = rec.armedAt; }
+      } else {
+        v = await gatewayArm.armedVersion();
+      }
+    } catch { v = null; }
     if (v === null) return;
     if (v) {
+      // An apply of this version was given up on at start: the gateway's arm is stale
+      // (the old version still runs), so it is disarmed, not adopted.
+      // The same holds for an arm the running app already reached or passed (armed
+      // 2.0.0, then 3.0.0 landed and the quit installed it): equality is not enough.
+      let runningVersion = "";
+      try { runningVersion = String(app.getVersion() || ""); } catch { runningVersion = ""; }
+      const stale = isNewerVersion(v, runningVersion) === false;
+      // A give-up is about the arm that existed then. An arm the gateway recorded
+      // after it (a fresh click on the same version) is a new ask and is adopted.
+      const failed = updateArm.failedRecord();
+      const failedArm = failed !== null && failed.version === v && !(armedAt !== null && armedAt * 1000 > failed.atMs);
+      if (stale || failedArm) {
+        log.info(`[update] the gateway holds ${v}, which is stale or failed - disarming it instead of adopting it`);
+        // Compare-and-cancel: a click that re-armed the gateway since the read above
+        // carries a new armed_at (or version), and is not this stale record.
+        try {
+          const again = typeof gatewayArm.armedRecord === "function" ? await gatewayArm.armedRecord() : { version: v, armedAt };
+          if (again && again.version === v && again.armedAt === armedAt) await gatewayArm.cancel(armedAt);
+        } catch { /* the next poll retries */ }
+        return;
+      }
       if (!updateArm.read()) {
         try { updateArm.arm(v); } catch (err) {
           log.error("[update] could not record the gateway's armed version", err);
@@ -487,7 +543,7 @@ function createManagedLane({
     emit("downloaded", downloadedPayload(version));
     if (gatewayArm) {
       try {
-        const told = await gatewayArm.arm();
+        const told = await gatewayArm.arm(version);
         log.info(told ? "[update] the running gateway recorded the arm" : "[update] no running gateway recorded the arm - main holds it");
       } catch (err) {
         log.info(`[update] telling the gateway about the arm failed: ${(err && err.message) || err}`);
@@ -504,6 +560,7 @@ function createManagedLane({
   // update is applied by the quit it triggers, exactly as for any other quit,
   // and the relaunch below brings the app back (see relaunchAfterApply).
   function managedRelaunch() {
+    relaunchScheduled = true;
     relaunchAfterApply();
     app.quit();
   }

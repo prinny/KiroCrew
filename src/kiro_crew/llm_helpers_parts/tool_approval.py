@@ -54,6 +54,7 @@ from kiro_crew.security import (
     redact_credentials,
     redact_exfiltration_urls,
 )
+from kiro_crew.security.paths_resolver import bounded_judgment
 from kiro_crew.security.readonly_bash import command_invokes_git, is_read_only_bash
 from kiro_crew.tool_gate_busy import hook_gate_busy
 
@@ -598,7 +599,15 @@ async def _resolve_permission(
                 return (*body_hit, "always_deny_input")
         return None
 
-    _hit = await asyncio.to_thread(_scan_off_loop)
+    def _bounded_scan_off_loop() -> tuple[str, str, str, str] | None:
+        # Every path check of this one call shares one resolver wait budget. An
+        # off-loop thread has no wait allowance, so without it a call naming many slow
+        # mounts holds this worker for a budget plus grace per path. A spent budget
+        # refuses the next path as unverifiable, which denies the call.
+        with bounded_judgment():
+            return _scan_off_loop()
+
+    _hit = await asyncio.to_thread(_bounded_scan_off_loop)
     if _hit is not None:
         _kind, _reason, _matched, _tier = _hit
         _log(
@@ -804,9 +813,9 @@ async def _resolve_permission(
     # A git read the gate's read-only tier declined (git reads `.git/config`,
     # whose `core.fsmonitor` / `core.hooksPath` name a program no text
     # classifier sees) falls through to the surface's approver. With no
-    # approver on a hook-based surface (a Meetings dispatch), the default
-    # below would run it unchecked -- not even the name-grant check the
-    # read-only approve ran -- so it is refused instead.
+    # approver on a hook-based surface (an app turn before a gateway registers
+    # its prompt), the default below would run it unchecked -- not even the
+    # name-grant check the read-only approve ran -- so it is refused instead.
     if policy == ToolApprovalPolicy.HOOK_BASED and hooks and on_tool_approval is None:
         _git_command = name_grant.shell_command_for_event(event)
         if _git_command and command_invokes_git(_git_command) and is_read_only_bash(_git_command):

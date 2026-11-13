@@ -85,6 +85,7 @@ _POPULATED: dict = {
     "tags": ["t1", "t2"],
     "_auto_tagged": True,
     "_human_seen": True,
+    "_telemetry_notice_shown": "0123456789abcdef",
     "forked_from": "parent-slot",
     "forked_from_created_at": "2026-01-01T00:00:00",
     "linked_session_key": "slack:C1:1.2",
@@ -156,6 +157,7 @@ _BASE_LINE_ORDER = (
     "tags",
     "auto_tagged",
     "human_seen",
+    "telemetry_notice_shown",
     "last_user_at",
     "deferred_notes",
     "queued_prompts",
@@ -211,6 +213,7 @@ _BASE_MERGE_ORDER = (
     "tab_id",
     "auto_tagged",
     "human_seen",
+    "telemetry_notice_shown",
     "channel_folder_filed",
     "closed",
     "closed_at",
@@ -511,6 +514,19 @@ def test_slot_args_take_each_purposes_construction_inputs():
         "origin": "cron",
     }
     assert codec.slot_args({}, codec.Resume(history_key="dashboard:x"))["channel_origin"] is False
+
+
+def test_resume_binds_a_review_transcripts_own_link_for_the_dashboard_user_only():
+    """An app's resume stays unbound: its stem-named tab's own session is ``dashboard:``.
+
+    Bound, the ownership rule would read the tab as running on a foreign session and
+    refuse the app every route on the tab it just reopened.
+    """
+    meta = {"linked_session_key": "taskrunner:t1:chat:abc"}
+    user = codec.slot_args(meta, codec.Resume(history_key="taskrunner_t1_chat_abc"))
+    app = codec.slot_args(meta, codec.Resume(app="a", history_key="taskrunner_t1_chat_abc"))
+    assert user["linked_session_key"] == "taskrunner:t1:chat:abc"
+    assert "linked_session_key" not in app
 
 
 @pytest.mark.parametrize("purpose", sorted(codec.PURPOSES))

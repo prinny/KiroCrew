@@ -209,6 +209,7 @@ from kiro_crew.dashboard.chat_turn.queue_drain import (  # noqa: F401
     subagents_hold_user_messages,
 )
 from kiro_crew.dashboard.chat_turn.recipient import (  # noqa: F401
+    MIRROR_ECHO_OWED_META_KEY,
     _authorize_recipient,
     _recipient_principal,
     _resolve_channel_target,
@@ -306,6 +307,7 @@ from kiro_crew.dashboard.chat_turn.turn_locals import _ChatTurn, _Flow
 from kiro_crew.dashboard.chat_turn.turn_marker import (  # noqa: F401
     _clear_local_turn_marker,
     _gateway_shutdown_requested,
+    register_turn_observer,
 )
 from kiro_crew.dashboard.chat_turn.turn_reply_seams import _flush_thinking_stream, _notify_turn_died
 from kiro_crew.dashboard.chat_turn.turn_spec_hooks import _turn_stop_hook
@@ -365,6 +367,7 @@ from kiro_crew.dashboard.session_directive_apply import (  # noqa: F401
     apply_session_directive_outcome,
 )
 from kiro_crew.dashboard.session_health import RAW_FRAME_LOG_LABEL
+from kiro_crew.dashboard.skill_read_ahead import read_beside_claim  # noqa: F401
 from kiro_crew.dashboard.state import (  # noqa: F401
     _MAX_CONSUMED_MERGE_CARDS,
     _MAX_CONTEXT_PER_SOURCE,
@@ -908,9 +911,9 @@ async def _run_chat(
     # message-value key could not tell apart). Captured by the fire path.
     _directive_loop_gen: int = 0,
     # The drained synthetic-recovery entry was queued by a loop's own cycle (marked
-    # by ``_queue_recovery``): that loop's ``(id, config generation)``. It grants no
-    # wake authority; a fault that ends this turn is charged to that loop as its
-    # cycle's. Only the queue drain sets it.
+    # by ``_queue_recovery``), or is a loop's requeued steered wake: that loop's
+    # ``(id, config generation)``. It grants no wake authority; a fault that ends
+    # this turn is charged to that loop as its cycle's. Only the queue drain sets it.
     _recovered_wake: tuple[str, int] | None = None,
     # The text skill triggers match on a loop's wake, when it is not the
     # message: a plain nudge passes the loop's own message, without the cycle

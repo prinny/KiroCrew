@@ -763,8 +763,13 @@ class AgentConfig:
             "Deferral only starts once the specs cross tool_search_min_pct or "
             "tool_search_min_tokens; disabling reverts to sending full tool "
             "specs. Crew's servers defer only when the spawn runs the pinned "
-            "kiro-cli install or its kiro-cli-chat, and both are >= 2.27.0; any "
-            "other executable, an older or unknown version keeps them resident. "
+            "kiro-cli install or its kiro-cli-chat, and both are >= 2.27.0, or "
+            "runs a KIROCREW_KIRO_BIN override or a kiro-cli found only on PATH "
+            "that is itself >= 2.27.0 (and, when named kiro-cli on macOS or "
+            "Linux, >= 3.0.0); a PATH install is checked inside the sandbox, "
+            "which Windows lacks. Any other executable, an older or unknown "
+            "version keeps them resident, and so does every spawn after a "
+            "request is refused for a changed tool list, until restart. "
             "On Kiro Crew's own KAS engine bundle they always defer: that engine "
             "keeps its tools array fixed when a tool loads. To override the "
             "never-defer list, set "
@@ -1041,13 +1046,15 @@ class AgentConfig:
             "time is not charged to the start budget "
             "or the startup deadline, but a subagent start that stays queued past "
             "the start-queue cap ends as never started, unless its subagent "
-            "timeout ends it first. A fixed bound, not adaptive: the adaptive loop is the MCP gateway spawn "
+            "timeout ends it first. Not adaptive: the adaptive loop is the MCP gateway spawn "
             'gate and the execution-cap controller. "auto" (the default) sizes it '
-            "once at gateway start as min(cpus // 4, available GB // 3) clamped to "
-            "2..16, with cpus the affinity count capped by a cgroup cpu.max quota; "
-            "the gateway logs the value in force at boot, and kirocrew doctor "
+            "at gateway start as min(cpus // 4, available GB // 3) clamped to "
+            "2..16, with cpus the affinity count capped by a cgroup cpu.max quota, "
+            "and widens it when a later reading finds more memory available; it "
+            "never narrows and never passes what the cores give. "
+            "The gateway logs the value in force at boot and each time it widens, and kirocrew doctor "
             "shows what auto picks for the host now. An integer sets it "
-            "explicitly, clamped to 1..64.",
+            "explicitly, clamped to 1..64, and is fixed until a restart.",
             restart=True,
         ),
     )

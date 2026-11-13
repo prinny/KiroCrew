@@ -28,6 +28,7 @@ from kiro_crew.apps.manager_records import (
     APP_MANIFEST_FILENAME,
     INSTALLED_META_FILENAME,
     InstalledApp,
+    InstalledRecordShapeError,
     _approved_grants_row,
     _is_sidecar_entry,
     _read_installed,
@@ -352,6 +353,14 @@ def missing_agent_reason(agent: str, *, member: str = "") -> str:
         default = missing_default_agent_explanation(agent)
         if default is not None:
             reason += f" It is agent.default_agent, which setup does not write. {default[1]}"
+        # A linked-worktree gateway is refused the shared agent home, so on a home
+        # with no specs the definition was never written: say so, and what to do.
+        try:
+            from kiro_crew.agent import _worktree_declined_spec_hint
+
+            reason += _worktree_declined_spec_hint()
+        except Exception:  # noqa: BLE001 - the hint is a label, never a gate
+            logger.debug("no worktree hint for a missing agent %r", agent, exc_info=True)
         return reason
     if not owner.enabled:
         return (
@@ -376,7 +385,13 @@ def list_apps() -> list[dict[str, Any]]:
     for entry in sorted(root.iterdir()):
         if _is_sidecar_entry(entry.name) or not entry.is_dir():
             continue
-        meta = _read_installed(entry.name)
+        try:
+            meta = _read_installed(entry.name)
+        except InstalledRecordShapeError as exc:
+            # One damaged record must not take the whole listing down; it is left
+            # on disk untouched and named in the log.
+            logger.warning("Skipping app %s in the listing: %s", entry.name, exc)
+            continue
         if not meta:
             continue
         # Also load manifest for full info

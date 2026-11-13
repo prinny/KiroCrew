@@ -19,6 +19,8 @@ import {
   type KasLoginStatus,
 } from '../api/client'
 import { ApiError, apiErrorCode } from '../api/apiError'
+import { isUnansweredRead } from '../api/queryClient'
+import { reportForError, type ErrorReport } from '../utils/errorReport'
 import {
   PANEL_CLASS,
   SCRIM_CLASS,
@@ -680,10 +682,13 @@ function DeviceWaiting({
 // verbatim when the backend sent one. An Identity Center sign-in whose Kiro
 // profile could not be found gets its own plain sentence per `code`: "no
 // profile" only when the lookup answered with none, never when the lookup
-// itself failed.
+// itself failed. A poll the gateway never answered gets one too, since the
+// browser's own text for it ("Failed to fetch") names no cause and no remedy.
 function SignInProblem({
   expired,
   code,
+  connectionLost,
+  report,
   detail,
   busy,
   notice,
@@ -692,6 +697,10 @@ function SignInProblem({
 }: {
   expired: boolean
   code?: string
+  /** The poll got no answer from the gateway: it restarted, or the link dropped. */
+  connectionLost: boolean
+  /** The poll failure's own report, so the hand-off keeps it under a reworded sentence. */
+  report?: ErrorReport
   detail: string
   /** True while the old attempt's cancel is settling: both actions are disabled. */
   busy: boolean
@@ -706,11 +715,13 @@ function SignInProblem({
   // eyebrow-plus-headline shape.
   const coded = expired
     ? ''
-    : code === 'no_kiro_profile'
-      ? i18nT('components.kasLogin.no_kiro_profile_body')
-      : code === 'profile_lookup_failed'
-        ? i18nT('components.kasLogin.profile_lookup_failed_body')
-        : ''
+    : connectionLost
+      ? i18nT('components.kasLogin.connection_lost_body')
+      : code === 'no_kiro_profile'
+        ? i18nT('components.kasLogin.no_kiro_profile_body')
+        : code === 'profile_lookup_failed'
+          ? i18nT('components.kasLogin.profile_lookup_failed_body')
+          : ''
   return (
     <ViewShell
       aside={{
@@ -750,6 +761,7 @@ function SignInProblem({
         className="mt-3 max-w-lg"
         askAgent={chrome.card}
         message={coded || detail || null}
+        report={report}
         testId="kas-login-problem-detail"
       />
       <ErrorNotice
@@ -877,6 +889,9 @@ function KasLoginFlow({
   // waiting screen up with no explanation — buttons re-enabled, nothing said.
   // Held here and rendered on that screen; cleared by the next attempt.
   const [settleError, setSettleError] = useState('')
+  // The login a signed-in status dropped whose cancel did not settle: the
+  // gateway keeps it open, so the signed-in view says so and offers a retry.
+  const [unsettledLoginId, setUnsettledLoginId] = useState<string | null>(null)
   const statusQuery = useQuery({
     queryKey: QUERY_KEY,
     queryFn: api.kasLoginStatus,
@@ -1093,6 +1108,23 @@ function KasLoginFlow({
         : beginDevice.mutate({ provider: prev.provider, extra: prev.extra }),
     )
 
+  // Signed in another way (another tab, the CLI) while this login was pending:
+  // the signed-in view hides it, and it would poll unseen until its code
+  // expires. Drop it, then cancel it the way a user's cancel does. The session
+  // is never restored, so an unsettled cancel does not resume the poll.
+  const cancelDropped = async (loginId: string) => {
+    setUnsettledLoginId(null)
+    if ((await settleCancel(loginId)) === 'unknown') setUnsettledLoginId(loginId)
+  }
+  useEffect(() => {
+    if (!status?.authenticated || reauth || !session || settling) return
+    setSession(null)
+    setFellBack(false)
+    void cancelDropped(session.login_id)
+    // cancelDropped is re-created every render; listing it would re-fire on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.authenticated, reauth, session, settling])
+
   // Mirror KiroPrerequisiteGate: an unresolved check is UNKNOWN, never a locked
   // door — render the app rather than flashing a sign-in screen at every load.
   if (statusQuery.isPending) return <>{renderPending ? renderPending() : children}</>
@@ -1158,6 +1190,22 @@ function KasLoginFlow({
             testId="kas-login-replace-warning"
           />
         ) : null}
+        {unsettledLoginId ? (
+          // askAgent on, as above: nothing here is a draft, and the agent runs
+          // as the account that is signed in.
+          <ErrorNotice
+            className={chrome.card ? 'mb-3' : 'mb-4 max-w-lg'}
+            askAgent
+            message={i18nT('components.kasLogin.pending_cancel_unsettled')}
+            footer={
+              <Btn type="button" onClick={() => void cancelDropped(unsettledLoginId)}>
+                {i18nT('components.kiroPrerequisiteGate.try_again')}
+              </Btn>
+            }
+            onDismiss={() => setUnsettledLoginId(null)}
+            testId="kas-login-cancel-unsettled"
+          />
+        ) : null}
         {renderAuthenticated ? renderAuthenticated(status, { reauth: () => setReauth(true) }) : children}
       </>
     )
@@ -1179,6 +1227,10 @@ function KasLoginFlow({
         <SignInProblem
           expired={effective === 'expired'}
           code={pollQuery.error ? undefined : pollQuery.data?.code}
+          // A coded refusal is the gateway's own answer (its 502 when the auth
+          // service is unreachable), so it keeps its text.
+          connectionLost={isUnansweredRead(pollQuery.error) && !apiErrorCode(pollQuery.error)}
+          report={reportForError(pollQuery.error)}
           detail={detail}
           busy={settling}
           notice={settleError}

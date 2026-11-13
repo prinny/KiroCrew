@@ -254,6 +254,9 @@ def test_running_and_turn_running_slot_readers_are_enumerated() -> None:
                 # The summary verb reports liveness beside the digest for the
                 # same reason `read_messages` does.
                 ("session_control_parts/session_status.py", "read_summary"),
+                # The queue verb reports liveness beside the listing, for the
+                # same reason.
+                ("session_control_queue.py", "queue_target"),
                 ("session_control_parts/session_messaging.py", "send_to_target"),
                 # Pre-pick idle check via _switch_target_busy (idle-only tool contract).
                 ("session_control_parts/model_switch.py", "set_model_target"),
@@ -279,6 +282,9 @@ def test_running_and_turn_running_slot_readers_are_enumerated() -> None:
                 ("warm_task_brief.py", "_still_current"),
                 ("warm_task_brief.py", "_wait_for_idle_turn"),
                 ("ws.py", "_handle_slot_focused"),
+                # A slot a send has reserved is past the moment a read ahead of
+                # its first message could help.
+                ("skill_read_ahead.py", "read_ahead"),
             }
         },
         **{

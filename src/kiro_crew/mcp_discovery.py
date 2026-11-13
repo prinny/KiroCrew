@@ -847,6 +847,7 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
     from kiro_crew.mcp_discovery_config import (  # noqa: F401
         _MALFORMED_TRANSPORT_MAX,
         _display_transport,
+        _encoding_reason,
         _mcp_names_from_file,
         _server_from_spec,
         configured_mcp_aliases,
@@ -868,14 +869,24 @@ if TYPE_CHECKING:  # every owner-defined name in _EXPORTS, for type checkers and
     from kiro_crew.mcp_discovery_probe import (  # noqa: F401
         _ENV_NOT_A_MAP_ERROR,
         _MAX_BANNER_LINES,
+        _STDERR_FIRST_WAIT_SECS,
+        _STDERR_QUIET_SECS,
+        _STDERR_READ_BYTES,
+        _STDERR_READS,
+        _STDERR_SHOWN_CHARS,
         _STDOUT_LINE_HELD_CHARS,
         _STDOUT_TAIL_LINE_CHARS,
         _STDOUT_TAIL_LINES,
         _STDOUT_WITHHELD,
+        _STOPPED_AFTER_LISTING,
+        _handlers_answer,
+        _last_lines,
+        _lists_before_handlers,
         _probe_on_private_loop,
         _read_stdio_jsonrpc_response,
         _redact_temp_refusal_text,
         _served_by_gateway,
+        _stderr_text,
         _temp_refusal_records,
         secret_reference_refusal,
     )
@@ -970,6 +981,9 @@ if TYPE_CHECKING:  # names it serves from outside the family, from their homes
         invalid_disabled_flag,
         mcp_entry_is_registry_governed,
         warn_invalid_disabled,
+    )
+    from kiro_crew.mcp_entry import (  # noqa: F401
+        lists_before_handlers,
     )
     from kiro_crew.mcp_gateway.hashing import (  # noqa: F401
         hash_command,

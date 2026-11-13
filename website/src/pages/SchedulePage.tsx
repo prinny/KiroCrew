@@ -42,6 +42,7 @@ import type { CronFolder } from '../utils/cronFolders'
 import CronFolderHeader from '../components/CronFolderHeader'
 import CronBatchActionsMenu from '../components/CronBatchActionsMenu'
 import { useScheduleBatchActions, BatchRunConfirmDialog } from './SchedulePageBatchActions'
+import ScheduleCrewmateRosterNotice from './ScheduleCrewmateRosterNotice'
 import CronRowActions from '../components/CronRowActions'
 import AddJobSplitButton from '../components/AddJobSplitButton'
 import {
@@ -359,7 +360,8 @@ export default function SchedulePage() {
   // "By crewmate": '' lists every job, a crewmate name lists only that
   // crewmate's own schedules (rows whose `member_id` resolves to it).
   const [crewmateFilter, setCrewmateFilter] = useState('')
-  const { data: rosterData, isError: crewmateRosterFailed, error: crewmateRosterError, refetch: reloadCrewmateRoster, isFetching: crewmateRosterReloading } = useQuery(membersRosterQuery)
+  const crewmateRosterRead = useQuery(membersRosterQuery)
+  const rosterData = crewmateRosterRead.data
   const roster = useMemo(() => (Array.isArray(rosterData) ? rosterData : []), [rosterData])
   const [selected, setSelected] = useState<CronJob | null>(null)
   /**
@@ -786,22 +788,7 @@ export default function SchedulePage() {
           )}
           {/* Only when a listed job needs the roster: with no crewmate job the
               failed read costs the page nothing worth reporting. */}
-          {crewmateRosterFailed && jobs.some(j => j.member_id) && !detailDialogOpen && (
-            <div className="flex flex-wrap items-center gap-2 mb-3">
-              {/* askAgent on: the job dialog is closed, so no job draft can be lost. */}
-              <ErrorNotice
-                variant="inline"
-                className="flex-1 min-w-0"
-                title={i18nT('pages.membersPage.roster_load_failed')}
-                message={queryErrorMessage(crewmateRosterError)}
-                askAgent
-                testId="schedule-crewmate-roster-error"
-              />
-              <Btn onClick={() => void reloadCrewmateRoster()} disabled={crewmateRosterReloading} aria-busy={crewmateRosterReloading}>
-                {i18nT('pages.schedulePage.retry')}
-              </Btn>
-            </div>
-          )}
+          <ScheduleCrewmateRosterNotice read={crewmateRosterRead} show={jobs.some(j => j.member_id) && !detailDialogOpen} errorMessage={queryErrorMessage} />
           {lateFailures.map(f => (
             <ErrorNotice
               key={f.id}
@@ -1858,7 +1845,7 @@ function JobDetailDialog({ job, prefill, prefillWrites, agents, defaultAgent, ro
           </div>
         )}
         {detailTab === 'logs' && job ? (
-          <JobLogsView jobId={job.id} jobName={job.name} isRunning={job.is_running} runningSince={job.running_since} cancelError={panelError} onCancel={async () => { setPanelError(null); try { await api.cancelCron(job.id); onSaved() } catch (e: unknown) { setPanelError(e instanceof Error ? e.message : i18nT('pages.schedulePage.failed')) } }} />
+          <JobLogsView jobId={job.id} jobName={job.name} canHideIdle={!!job.script} isRunning={job.is_running} runningSince={job.running_since} cancelError={panelError} onCancel={async () => { setPanelError(null); try { await api.cancelCron(job.id); onSaved() } catch (e: unknown) { setPanelError(e instanceof Error ? e.message : i18nT('pages.schedulePage.failed')) } }} />
         ) : (
           <>
             {job && <TemplateUpdatedNotice job={job} />}

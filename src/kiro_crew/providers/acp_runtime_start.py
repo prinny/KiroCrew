@@ -14,8 +14,8 @@ Instance fields written: ``_client``, ``_cloud_governance_scope``,
 ``startup_notice``.
 
 Instance fields read: ``_accepts_elicitation``, ``_child_fidelity_aware``, ``_crew_agent``,
-``_harness_pin``, ``_on_gate_acquired``, ``_on_gate_queued``, ``_tool_search``,
-``member_context``, ``memory_mode``, ``owning_app``, ``start_priority``.
+``_harness_pin``, ``_keepalive_routed``, ``_on_gate_acquired``, ``_on_gate_queued``,
+``_tool_search``, ``member_context``, ``memory_mode``, ``owning_app``, ``start_priority``.
 """
 
 from __future__ import annotations
@@ -65,6 +65,7 @@ from kiro_crew.config.paths import kiro_sessions_dir
 from kiro_crew.messaging.link import telemetry_channel_of
 from kiro_crew.platform_compat import pid_exists
 from kiro_crew.providers.cleanup import _is_safe_path
+from kiro_crew.start_priority import StartPriority
 
 if TYPE_CHECKING:
     from kiro_crew.providers.acp import AcpProvider
@@ -472,6 +473,7 @@ async def _load_session_with_retry(
     channel_id: str = "",
     require_replay: bool = False,
     crew_agent: str | None = None,
+    start_priority: StartPriority = StartPriority.BACKGROUND,
 ) -> AcpSessionHandle | None:
     """Resume via session/load, retrying past a stale native session lock.
 
@@ -505,6 +507,7 @@ async def _load_session_with_retry(
             channel_id=channel_id,
             require_replay=require_replay,
             crew_agent=crew_agent,
+            start_priority=start_priority,
         )
 
     swept = False
@@ -952,6 +955,7 @@ async def _start_kiro_runtime_impl(
                         channel_id=self._owning_channel_id() or "",
                         require_replay=self.is_kas_backend,
                         crew_agent=self._crew_agent,
+                        start_priority=start_priority,
                     )
                 finally:
                     if cloud_hold is not None:
@@ -1295,6 +1299,10 @@ async def _start_kiro_runtime_impl(
         # The elicitation opt-in travels the same way, for the same reason.
         if self._accepts_elicitation:
             provider.accepts_elicitation = True
+        # So does the keepalive route's mark: without it the fresh handle would
+        # not time this session's calls on Kiro Crew's own servers.
+        if getattr(self, "_keepalive_routed", False) is True:
+            provider.mark_keepalive_routed()
         self._client = provider  # type: ignore[assignment]
         # What each later turn re-checks Kiro Cloud governance against (acp_turns.
         # _readmit_cloud_session): the same session, agent and app as this start.

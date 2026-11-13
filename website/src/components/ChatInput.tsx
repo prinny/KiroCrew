@@ -29,7 +29,7 @@ import { useComposerSpellcheck } from '../hooks/useComposerSpellcheck'
 import { useComposerInlineMarkdown } from '../hooks/useComposerInlineMarkdown'
 import { useComposerArrowKeyHistory } from '../hooks/useComposerArrowKeyHistory'
 import { useComposerSendMode } from '../hooks/useComposerSendMode'
-import TrustDropdown from './TrustDropdown'
+import TrustDropdown, { TrustUnavailable } from './TrustDropdown'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { usePressActivation } from '../hooks/usePressActivation'
 import { isTouchDevice } from '../utils/isTouchDevice'
@@ -74,7 +74,7 @@ import { HoldToTalkBar, MicButton, VoiceCaptureStatus } from './chat-input/Voice
 import { AgentChip, ContextUsageControl, ModelChip, SessionControlChips, useContextPopover, useShelfMeasure } from './chat-input/ContextShelf'
 import { useAutoCompactThreshold } from './chat-input/autoCompact'
 import { useOfflinePlaceholder } from './chat-input/offlinePlaceholder'
-import { AttachMenu, usePlusMenu } from './chat-input/attach'
+import { AttachMenu, isUploadFileChord, usePlusMenu } from './chat-input/attach'
 import { ComposerActionMenuItems, useComposerActionMenu } from './chat-input/composerActions'
 import { BusySendControls, CompactingIndicator, useComposerSend } from './chat-input/busySend'
 import { CollapsedComposerBar, collapseMenuRowElement, useComposerCollapse } from './chat-input/collapse'
@@ -82,7 +82,7 @@ import { useGuideRevealScope } from '../guide/GuideRevealScope'
 import { useComposerFocus, useComposerKeyDown, useEditorInput } from './chat-input/keyboard'
 import { useComposerStopKey } from './chat-input/stopKey'
 import { ESCAPE_PRIORITY, useEscapeLayer } from '../hooks/useEscapeLayer'
-import { INPUT_DRAG_MIN_H, useInputAreaKeyboardLift, useManualHeight, useStripHeights, useTextareaAutosize } from './chat-input/sizing'
+import { INPUT_DEFAULT_MAX_H, INPUT_DRAG_MIN_H, INPUT_PREFILL_MAX_H, useInputAreaKeyboardLift, useManualHeight, useStripHeights, useTextareaAutosize } from './chat-input/sizing'
 import { usePromptHistory } from './chat-input/draftHistory'
 import { useUndoHistory } from '../chat-core/composer/undoHistory'
 import { useOptimizeBeforeSend, usePromptOptimizer, usePromptOptimizerEnabled } from './chat-input/optimizer'
@@ -377,7 +377,7 @@ function ChatInput({
   const {
     pendingApproval, hasApproval, approvalId, approvalSubmitting, approvalPickerSignal, setApprovalPickerSignal,
     approvalModeAdjusted, approvalNudgeActive, dismissApprovalNudge, hideApprovalNudge,
-    approvalNotice, setApprovalNotice, approvalNoticeKind, showApprovalError,
+    approvalNotice, setApprovalNotice, approvalNoticeKind, showApprovalError, showApprovalStatus,
     approvalToolInput, approvalIsReadOnly, approvalFullCommand, approvalBaseCommand, approvalIsShell, approvalTakesReason, approvalMid,
     approvalTrustCommandGrantable, approvalTrustBaseGrantable, approvalTrustAllGrantable, approvalIsUnattended, approvalTrustGrantable,
     approvalDenyRule, approvalDenyDetail, approvalDenyFamily, approvalDenyCommand,
@@ -406,7 +406,7 @@ function ChatInput({
   // Timed client-side from the frame that carried the decline; see the hook.
   const stopDeclinedArmed = useStopDeclinedHint(stopDeclined)
 
-  const spawnApprovals = useSpawnApprovals({ slotId, slotApprovalChrome, dispatch, showApprovalError })
+  const spawnApprovals = useSpawnApprovals({ slotId, slotApprovalChrome, dispatch, showApprovalError, showApprovalStatus })
 
   const {
     inputRef, composerAnchorRef, lexicalControlRef, lexicalLoadFailed, setLexicalLoadFailed,
@@ -1184,9 +1184,9 @@ function ChatInput({
                   <div ref={approvalActionsRef} data-approval-actions className="flex gap-1.5 flex-wrap items-center">
                       {approvalDenyRule ? <DenyOverrideDropdown disabled={approvalSubmitting} className={approvalBtnClass} family={approvalDenyFamily} onAction={(action) => { handleApprovalAction(action) }} /> : <>
                       <button disabled={approvalSubmitting} className={approvalBtnClass} onClick={() => handleApprovalAction('approved')}><CheckCircle size={12} className="shrink-0" />{i18nT('components.chatInput.allow_once')}</button>
-                      {/* One dropdown carries every standing grant (trust-reads is a tier in it):
-                          `max-two-buttons-per-row` grandfathers Allow once + Trust + Reject; no fourth. */}
-                      {approvalTrustGrantable && (approvalTrustCommandGrantable || approvalTrustAllGrantable || approvalIsReadOnly) && (
+                      {/* One dropdown carries every standing grant (trust-reads is a tier in it), and a card with none
+                          keeps its place disabled: `max-two-buttons-per-row` grandfathers Allow once + Trust + Reject; no fourth. */}
+                      {approvalTrustGrantable && (approvalTrustCommandGrantable || approvalTrustAllGrantable || approvalIsReadOnly) ? (
                         <TrustDropdown
                             fullCommand={approvalFullCommand}
                             baseCommand={approvalBaseCommand}
@@ -1199,7 +1199,7 @@ function ChatInput({
                             timedGrants
                             onAction={(action, pattern, ttlSeconds) => { handleApprovalAction(action, pattern, ttlSeconds) }}
                         />
-                      )}
+                      ) : <TrustUnavailable className={approvalBtnClass} />}
                       </>}
                       {/* Keyed per card row: a typed reason never reaches another card. */}
                       <RejectDropdown
@@ -1261,18 +1261,6 @@ function ChatInput({
           />
         </div>
       )}
-      {spawnApprovals.spawnLivenessError && (
-        <div className="px-4 mb-1">
-          {/* No hand-off: the composer draft below is unsaved. Beside the
-              refusal, never over it: a failed liveness read after a gone
-              verdict is a second fact, not a replacement for the first. */}
-          <ErrorNotice
-            testId="spawn-liveness-error"
-            message={spawnApprovals.spawnLivenessError}
-            onDismiss={spawnApprovals.dismissSpawnLivenessError}
-          />
-        </div>
-      )}
       {approvalNotice && (approvalNoticeKind === 'status' || approvalNoticeKind === 'settled') && (
         <div
           role="status"
@@ -1280,6 +1268,18 @@ function ChatInput({
         >
           {approvalNoticeKind === 'settled' ? <CheckCircle size={12} className="text-ok shrink-0" /> : <Lock size={12} className="text-warn shrink-0" />}
           <span className="text-muted text-[13px]">{approvalNotice}</span>
+        </div>
+      )}
+      {spawnApprovals.spawnLivenessError && (
+        <div className="px-4 mb-1">
+          {/* No hand-off: the composer draft below is unsaved. Under the
+              refusal, never over it: a failed liveness read after a gone
+              verdict is a second fact, not a replacement for the first. */}
+          <ErrorNotice
+            testId="spawn-liveness-error"
+            message={spawnApprovals.spawnLivenessError}
+            onDismiss={spawnApprovals.dismissSpawnLivenessError}
+          />
         </div>
       )}
       {approvalNotice && approvalNoticeKind === 'granted' && (
@@ -1457,10 +1457,10 @@ function ChatInput({
           layout={inlineToolbarWhileFits && !reduceMotion && manualHeight === null ? 'position' : false}
           transition={shapeAnimating ? COMPOSER_ROW_SPRING : { duration: 0 }}
           className={`relative ${showDictation || voiceHoldMode ? 'sr-only' : ''} ${manualHeight !== null ? `flex-1 ${lexicalComposer && !lexicalLoadFailed ? 'min-h-0' : 'min-h-[44px]'} flex flex-col` : inlineToolbar ? `flex-1 min-w-0 -ml-2.5 ${ONE_ROW_TEXT_PAD}` : ''}`}
-          // Composing in either editor (textarea or rich text) re-arms a
-          // reclaimed session's resume prefetch; the sender throttles.
+          // Composing in either editor (textarea or rich text) re-arms a reclaimed session's
+          // resume prefetch (the sender throttles); ⌘⇧U / Ctrl+Shift+U in either opens Upload file.
           onFocusCapture={() => emitComposeIntent(slotId)}
-          onKeyDownCapture={e => { emitComposeIntent(slotId); followUpGhost.onKeyDownCapture(e) }}
+          onKeyDownCapture={e => { emitComposeIntent(slotId); followUpGhost.onKeyDownCapture(e); if (onUploadFiles && !uploading && !typingLocked && isUploadFileChord(e, ime)) { e.preventDefault(); openPicker(false) } }}
         >
         {/* The one-row fit probe: the textarea's type and horizontal padding,
             no vertical padding, wrapping as the textarea wraps, measured at the
@@ -1516,6 +1516,7 @@ function ChatInput({
                 onMentionKey={onMentionKey}
                 onEscapeStop={stopTurnOnEscape}
                 className={manualHeight !== null ? 'flex-1 min-h-0' : ''}
+                maxHeight={manualHeight !== null ? null : prefillHint ? INPUT_PREFILL_MAX_H : INPUT_DEFAULT_MAX_H}
               />
             </Suspense>
           </ComposerLoadBoundary>

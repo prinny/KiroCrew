@@ -128,6 +128,11 @@ def _learn(args: argparse.Namespace) -> None:
         _negative = getattr(args, "negative", None)
         if _negative is not None:
             _to_check["negative"] = _negative
+        # Sent only when stated, as the learn_add MCP tool sends it: an omitted
+        # tier leaves the row unstated rather than asserting one.
+        _applies = getattr(args, "applies", None)
+        if _applies:
+            _to_check["applies"] = _applies
         try:
             cleaned_add = validate_tool_args(_to_check, LEARN_ADD_SCHEMA)
         except ValidationError as exc:
@@ -169,6 +174,11 @@ def _learn(args: argparse.Namespace) -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+    # No verb: print the usage line before the vector store below is built, since
+    # init() creates memory.db on a fresh data home.
+    if action not in ("add", "list", "remove"):
+        print("Usage: kirocrew learn {add|list|remove}")
+        return
     vs = VectorMemoryStore(embedding_dim=cfg.memory.embedding_dim, config=cfg)
     vs.init()
     try:
@@ -189,7 +199,9 @@ def _learn(args: argparse.Namespace) -> None:
 
             origin = None
             source = "user_explicit"
-            applies = None
+            # The stated tier, through the same origin gate POST /api/lessons
+            # runs it through; absent stays None (unstated).
+            applies = cleaned_add.get("applies") or None
             origin_mode = lesson_origin_gate_mode_from(
                 getattr(cfg.memory, "lesson_origin_gate", None)
             )
@@ -203,7 +215,7 @@ def _learn(args: argparse.Namespace) -> None:
 
                 if _in_agent_session():
                     origin = gate_learn_add_turn(
-                        None, TURN_AUTOMATIC, origin_mode, rule=rule, path=PATH_CLI_LEARN_ADD
+                        applies, TURN_AUTOMATIC, origin_mode, rule=rule, path=PATH_CLI_LEARN_ADD
                     )
                     applies, source = origin.applies, origin.source
                     if origin.drop_negative:
@@ -224,7 +236,7 @@ def _learn(args: argparse.Namespace) -> None:
             # store unavailable" state to fall back from: ``vs`` is constructed and
             # ``init()``-ed unconditionally above.
             if origin is None:
-                result = vs.write_lesson(rule, category, negative)
+                result = vs.write_lesson(rule, category, negative, applies=applies)
             else:
                 result = vs.write_lesson(rule, category, negative, source, applies=applies)
                 if origin.gate.loggable:
@@ -439,8 +451,5 @@ def _learn(args: argparse.Namespace) -> None:
             else:
                 print(f"No lessons match: {remove_query}", file=sys.stderr)
                 sys.exit(1)
-
-        else:
-            print("Usage: kirocrew learn {add|list|remove}")
     finally:
         vs.close()

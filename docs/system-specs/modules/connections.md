@@ -161,6 +161,10 @@ hand-built request cannot start a sign-in or a Test session for it. Cancel and
 Disconnect still reach every registry provider, so a grant stored before its
 provider was hidden stays revocable.
 
+Before each screen the cold mint runs the same discovery step the chat banner
+runs (`approve_discovered_oauth_endpoint`, see [security](security.md)), so a
+configured server whose own authorization server advertises the consent URL's
+exact host and path is not refused for its PKCE values.
 A cold mint whose URL is rejected by `oauth_url_contains_credential` disposes
 that dedicated process, protected PID, and ephemeral spec, then creates one
 fresh dedicated attempt with a new provider OAuth state. The retry keeps the
@@ -441,9 +445,15 @@ listener and PKCE verifier live in it. The watcher marks the row `granted` once 
 the server's `kiro.mcp.<hash>.tokens` entry from this sign-in: its appearing is the proof when
 none was there as the sign-in began, and with stale tokens already there the session must also
 report the server connected. The vault key is the MOUNTED entry's own `url` (a trailing slash
-makes a distinct key), not the registry url the start was asked with. The engine ends a sign-in with its connect attempt (60 s by
-default), and with it the listener, so a sign-in that ends without saved tokens is `expired`
-rather than left showing a URL nothing can redeem; the TTL still bounds the rest. That expiry
+makes a distinct key), not the registry url the start was asked with. The engine ends a sign-in with its connect attempt (the server's
+`timeout`, 300 s for a remote entry with none; see [acp-client](acp-client.md#kas-mcp-oauth-sign-in)),
+and with it the listener. It answers the reset at most 60 s in, while the attempt may still
+run, and the consent URL's own frame keeps the server `awaiting_auth`, so the watcher reads an
+answered sign-in as ended only once the report has the server `failed` (a timed-out or denied
+attempt). Such a sign-in without saved tokens is `expired` rather than left showing a URL
+nothing can redeem. An attempt that ends with no `failed` report (stale tokens and a 401 after
+consent, or a reset the engine skips) waits for the TTL, which bounds the rest; a new Connect
+replaces the row. That expiry
 carries no reason, so the card reads it as the sign-in window running out ("Sign-in timed
 out"), as for the kiro-cli mint. How the start ends (a URL published, granted at once, refused
 or failed) is audited on the mint's own SEL line with `route=kas`; the watcher's later
@@ -1245,6 +1255,18 @@ rule, which names the same three kinds; the frontend test that renders the
 needs-configuration card pins the explanation as absent from the document
 until the triangle is hovered.
 
+The open Google entry is the one variant. Its six product rows share one OAuth
+app, so the step they share is ONE ordinary `PrerequisiteTip` (the amber
+triangle) beside the entry's own action: on the closed entry
+before **Set up Google** / **Choose Google products**, on the open entry in its
+header beside the name toggle. Its copy is `google_entry_step_set_up` while no
+Google client is set, else `google_entry_step_connect`. The Google product rows
+show no triangle for their `prerequisite_copy`: six identical amber triangles
+beside six Connects read as a warning on every product, next to an OAuth app
+part that says Configured (#34353 UX review). A Google row still shows a
+triangle for a state-level caveat (the backend caveat, a stored sign-in) that
+applies to that row alone.
+
 The triangle's copy comes from two places. A provider-side prerequisite is the
 registry's `prerequisite_copy` (English fallback) rendered through the
 slug-keyed `prerequisite_<slug>` catalog entries (a slug's hyphens spelled as
@@ -1307,11 +1329,11 @@ user-owned Google client can serve all six: the user registers every card's
 redirect URI on it and saves it once (`oauth-app-registration/google.md`, with
 `scripts/google-oauth-setup.sh` / `.ps1` doing the gcloud part). All six
 entries point `registration_guide` at that one guide. Storage stays per card:
-nothing in `oauth_clients.py` links the six. The Settings → OAuth Apps Google
-cards carry an **Also save on (the other Google products)** toggle, on by default,
-that, when the Save carries a Client ID and a new secret (a whole pair), makes
+nothing in `oauth_clients.py` links the six. The one Google entry on Settings →
+Connections carries an **Also save on (the other Google products)** toggle, on by
+default, that, when the Save carries a Client ID and a new secret (a whole pair), makes
 one Save send the same PUT to every other Google card (`isGoogleSlug` in
-`ConnectionsPanel.tsx`: `gmail` or a `google-` slug); a card that fails is
+`connectionsLinks.ts`: `gmail` or a `google-` slug); a card that fails is
 named in the error and Save stays available to retry. Turned off, a card saves
 alone. Decision record: `rfc-connections-mcp-layout.md` §2.8.
 
@@ -1471,7 +1493,8 @@ or the entry's `dcr_client_name`) once per card in the vault entry
 (`none` first), and registers again when the redirect or issuer differs, the
 secret has expired, or after `invalid_client` (the card then asks to reconnect).
 Every authorize, token and refresh call sends `resource`; `offline_access` is
-asked for when listed; the callback's `iss` is checked. All DCR sign-ins share
+asked for when listed; the callback's `iss` is checked (one that does not parse
+is a mismatch). All DCR card sign-ins share
 the loopback port `registry.DCR_CALLBACK_PORT` (48100, which no pre-registered
 entry may use) and `state` picks the pending sign-in. A gateway with a public
 HTTPS `dashboard.url` (never the request's `Host`) registers
@@ -1482,6 +1505,31 @@ a pending sign-in (constant-time) is the only admission, each `state` answers
 once and is gone after `SIGN_IN_TTL_SECS` (600 s), and the answer is a fixed
 HTML page with `Cache-Control: no-store` and `Referrer-Policy: no-referrer` that
 echoes no input. Each hit is SEL-audited (`connections_crew_oauth_callback`).
+A callback that carries an `error`, or no `code`, is a refusal, even beside a
+code: `crew_oauth.callback_refusal` maps the `error` value onto the closed RFC
+6749 §4.1.2.1 set (`callback_access_denied`, `callback_invalid_request`,
+`callback_unauthorized_client`, `callback_unsupported_response_type`,
+`callback_invalid_scope`, `callback_server_error`,
+`callback_temporarily_unavailable`), and any other value or none onto
+`callback_refused`. The mint row's reason is that code (`crew_oauth_<code>`),
+and nothing the vendor wrote (`error`, `error_description`, `error_uri`) reaches
+the row, the audit, a log line or the page. `access_denied` covers both a user
+who declined and an organization policy that blocks the client, so the card's
+copy names both. Every listener (the shared loopback, a pre-registered card's
+own port, the public route) answers through the same `SignIn._callback`.
+
+A registry entry with an `org_admin_guide` (a `<file>.md#<anchor>` docs
+section, DCR entries only; Atlassian today) gets `signInRedirect` on its
+`/api/connections/status` row, so a user can hand the address to an org admin
+who allowlists redirects: `{"exact": crew_oauth_dcr.redirect_uri()}` when
+Crew's sign-in serves the card (`crew_oauth.owns`, the check Connect makes, and
+the same call `prepare` registers with), else `{"anyPort": ["http://127.0.0.1",
+"http://localhost"]}` (`registry.REDIRECT_HOSTS`), because then Kiro CLI or the
+KAS engine runs the sign-in on a loopback listener of its own and Crew does not
+choose its port. The card shows it under the prerequisite in
+the triangle beside Connect, as selectable text, and a refused sign-in whose
+code an admin's policy can cause (`access_denied`, `unauthorized_client`,
+`invalid_scope`) links the guide.
 Moving between the loopback and the public redirect re-registers, by the
 redirect rule above. After a sign-in, KAS's own
 grant for that URL (deleted by name) and kiro-cli's files go when the census
@@ -1493,12 +1541,41 @@ which answers 401: its pair is served up to its recorded expiry (no refresh skew
 then dropped with `needs_auth` so the card offers Connect again, and Disconnect
 deletes locally, leaving the card's manual revoke link.
 
+Crew can also hold an **owner-added remote server** (no card): an entry the
+owner recorded from the dashboard (`connections/owner_servers.py`, sealed
+`config.json`), at that exact url, under a name that is not a registry slug, at
+a url that is no registry provider's `mcp_url` (`crew_oauth._is_registry_url`:
+a card keeps that url's custody), not legacy `type: "sse"`, with no credential
+header. With the preview on a bridged chat backend, the MCP Servers page's Sign
+in runs Crew's sign-in (`dashboard/handlers/connections_custom_oauth.py`,
+`crew_oauth.signs_in_custom`). Its grant is keyed by name AND url
+(`crew_oauth.custom_key`: `custom-<sha256[:20]>`, vault entries
+`CONNECTIONS_CUSTOM_<KEY>_OAUTH_TOKENS` / `_CLIENT`), and a session bridges the
+entry only while that grant is held (`crew_oauth._custom_slug`). Discovery runs
+from the url without its query (`crew_oauth_dcr.prepare_custom`), which is also
+the `resource` and the audited url. Unlike a card it **commits no issuer**: it
+follows the one the url advertises, because the url is the owner's sealed record;
+`iss` is still checked. The client is the entry's `oauth.clientId` (public, or
+confidential with `clientSecret`), else Crew's own by DCR; the scopes are the
+entry's own (`kiro_entry_scopes`) ahead of a challenge's. Either client (the
+owner's, or one Crew just registered) is stored only with the pair it issued, in
+one vault write
+(`crew_oauth_dcr.keep_client`, `SecretVault.set_many_sync`), and `invalid_client`
+forgets only the stored client. An owner loopback `redirectUri`
+(`http://localhost|127.0.0.1:<port>/<path>`) gets its own listener for that one
+consent (`crew_oauth_dcr.own_listener`); without one the shared 48100 port or the
+gateway route above serves it, and any other redirect is refused. The consent
+link passes the banner gate because the sign-in records exactly the
+`authorization_endpoint` its discovery found (`record_discovered_oauth_endpoint`).
+After the first grant, live providers that apply an MCP change at their next turn
+are marked so they re-project with the bridge.
+
 **What the user sees.** `get_visible_providers` shows a pre-registered entry
 regardless of `launch_gate_passed` (vendor approval still hides), because until
 a client exists the card is an instruction, not an offer: `/api/connections/status`
 marks the row `needsClientConfig` (only while no grant is held), and the card
 renders the sixth state `needs-configuration` — a lock badge, the Documentation
-link, and a **Configure OAuth app** route to **Settings → OAuth Apps** in place
+link, and a **Set up <provider>** button that opens the card's OAuth app in place
 of Connect. What the setup involves (a guided settings page, nothing changes
 until saved, removable later, registers an app and enters its client ID and
 secret) is the row's pre-action caveat, so it sits behind the amber triangle

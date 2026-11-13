@@ -19,11 +19,12 @@ import {
 import { SettingsCard } from '../../components/settings'
 import { useConfigSchema } from '../../components/settingRef/useConfigSchema'
 import { KIRO_SIGN_IN_HIGHLIGHT_ANCHOR } from '../../hooks/useSettingHighlight'
+import { fmtList } from '../../i18n/format'
 import { i18nT } from '../../i18n/t'
 import { clearCachedModels } from '../../providers/adapters/acp'
 import { KiroSignInCard } from './KiroSignInCard'
 import { StrandsSetupCard } from './StrandsSetupCard'
-import { MCP_SERVERS_HREF } from '../connections/useConnectionsSubTab'
+import { MCP_SERVERS_HREF } from '../connections/connectionsLinks'
 import { KIRO_SIGN_IN_BACKEND, KIRO_SIGN_IN_SETTING_ID } from './kiroSignInLink'
 import { HarnessLogo } from '../../components/HarnessLogo'
 import type { CrewmateHarnessReadout } from '../../api/client'
@@ -1145,7 +1146,7 @@ export function AgentBackendTab() {
     if (row?.installed === 'missing')
       return {
         text: i18nT('pages.developer.agentBackendTab.missing_components', {
-          components: row.missing_components.join(', '),
+          components: fmtList(row.missing_components, { style: 'narrow' }),
         }),
       }
     // The check failed, and the SECOND half of that sentence is what UX blocked on:

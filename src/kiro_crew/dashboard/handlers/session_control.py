@@ -20,6 +20,7 @@ from aiohttp import web
 
 from kiro_crew import conductor_patrol, session_ledger
 from kiro_crew.dashboard import session_control as sc
+from kiro_crew.dashboard import session_control_queue as scq
 from kiro_crew.dashboard import session_send_receipts
 from kiro_crew.dashboard.handlers import remote_dispatch_routes as crew_routes
 from kiro_crew.dashboard.handlers import work_ledger as work_ledger_routes
@@ -304,7 +305,7 @@ async def _refuse_unprompted_seed(state: DashboardState, caller_key: str) -> Non
     A conductor auto-approves ``session_create`` but not ``session_send``; an
     unreadable spec cannot say which prompt applies, so it is refused too.
     """
-    from kiro_crew.agent_sdk.mcp_refs import entry_grants, entry_reaches
+    from kiro_crew.agent_sdk.agent_specs import creates_without_send
 
     # The header is often the history key; the slot is then found by the walk.
     slot = state.get_slot(caller_key) or state.get_slot(sc.caller_slot_key(state, caller_key))
@@ -319,13 +320,7 @@ async def _refuse_unprompted_seed(state: DashboardState, caller_key: str) -> Non
         if slot is not None
         else None
     )
-    tool = "@kirocrew-dashboard/session_"
-    entries = granted or ()
-    # Create over-matches (a wider read refuses more); send must be a grant
-    # kiro-cli itself honours, or the seed would skip a prompt it still shows.
-    create = any(entry_reaches(e.strip(), tool + "create") for e in entries)
-    send = any(entry_grants(e, tool + "send") for e in entries)
-    if granted is None or (create and not send):
+    if granted is None or creates_without_send(granted):
         raise sc.SessionControlError(
             "a first message needs session_send's approval: create the session, "
             "then session_send to it",
@@ -1319,6 +1314,44 @@ async def api_session_control_summary(request: web.Request) -> web.Response:
             state,
             caller_session_key=_read_session_key(request),
             target=target,
+            caller_fenced=_carried_fence(request),
+        )
+    except sc.SessionControlError as exc:
+        return _refusal(exc)
+    return web.json_response(result)
+
+
+# ``queue`` is not in ``SESSION_CONTROL_OPS``, so it folds to ``other`` like
+# ``revive`` and ``history``; adding it to the closed list needs no route edit.
+@_counted("queue")
+async def api_session_control_queue(request: web.Request) -> web.Response:
+    """POST /api/session-control/queue — list or move a managed session's queue."""
+    refused = await _require_internal(request)
+    if refused is not None:
+        return refused
+    state: DashboardState = request.app["state"]
+    try:
+        body = await _body(request)
+        action = body.get("action", "list")
+        entry = body.get("entry", "")
+        position = body.get("position")
+        if not isinstance(action, str):
+            raise sc.SessionControlError("action must be a string", code="bad_request")
+        if not isinstance(entry, str) or len(entry) > MAX_SHORT_STRING:
+            raise sc.SessionControlError("entry must be a short string", code="bad_request")
+        if position is not None and (isinstance(position, bool) or not isinstance(position, int)):
+            raise sc.SessionControlError("position must be an integer", code="bad_request")
+        target = _target(body)
+        # After the body read, like `summary`: `queue_target` is synchronous from
+        # its gate to its write, so this is the last suspension before the gate.
+        await sc.prewarm_enabled_check()
+        result = await scq.queue_target(
+            state,
+            caller_session_key=_read_session_key(request),
+            target=target,
+            action=action,
+            entry=entry.strip(),
+            position=position,
             caller_fenced=_carried_fence(request),
         )
     except sc.SessionControlError as exc:

@@ -86,6 +86,7 @@ from kiro_crew.agent_parts.kirocrew_launcher import (
     _kirocrew_mcp_invocation,
     _launcher_works,
     _migrations_dir,
+    _refresh_windows_forwarder,
     _resolve_kirocrew_bin,
     _stale_mcp_purge_marker,
     _through_stable_link,
@@ -102,6 +103,7 @@ from kiro_crew.agent_parts.shared_home import (
     _existing_specs_are_mine,
     _rebuild_spec_install_admitted,
     _warn_declined_home_once,
+    _worktree_declined_spec_hint,
 )
 from kiro_crew.agent_parts.spec_build import (
     _BACKGROUND_CC_MODEL,

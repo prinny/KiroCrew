@@ -92,6 +92,7 @@ export type { WakaTimeStatsEntry, WakaTimeStats } from './client/telemetry'
 export type {
   UsageSeriesDimension,
   UsageSeriesLayer,
+  UsageSeriesMetric,
   UsageSeriesPayload,
 } from './client/telemetry'
 export type {
@@ -134,6 +135,11 @@ export type {
   TrustedRegistryRow,
   TrustedRegistriesData,
   ManagedSecret,
+  SecretItemBody,
+  SecretItemFields,
+  SecretItemType,
+  SecretListItem,
+  SecretLoginPublicFields,
   SecretsListResponse,
 } from './client/security'
 export type {

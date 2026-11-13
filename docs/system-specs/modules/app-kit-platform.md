@@ -1323,9 +1323,27 @@ servers:
   `mcpServers`, `tools`, `allowedTools`, `prompt`. Each is derived from the
   manifest, the per-app policy, or the running install — a stale value is a bug,
   not a preference.
-- **Everything else on disk wins**: `model`, `description`, extra
-  `toolsSettings`… it can only be there because the user put it there. Preserved
-  keys are logged so the reason a template change did not appear is visible.
+- **Everything else on disk wins when the user owns it**: `model`, `description`,
+  `toolsSettings`, `excludedTools`, `permissions`… The previous registration wrote
+  the template's own values there too, so each registration keeps a **template
+  record** beside the spec, `<app>--<agent>.template` (`_template_record`): what it
+  wrote from the template for these keys. A value on disk that still equals the
+  record follows the new template, which may also drop the key. Any other value is
+  the user's (`_user_owned_agent_keys`) and is kept, and the record leaves that key
+  out from then on, so a later template that happens to equal the user's value and
+  then changes it again cannot take it back. A spec with no record (written before
+  records existed) keeps every value on disk, and those keys stay the user's from
+  then on. Preserved keys are logged so the reason a template change did not appear
+  is visible.
+
+The record is not `.json`, so kiro-cli and every spec scan skip it. It sits in the
+agents directory, which the sandbox seals read-only like the spec, and is written
+after the spec, under the same lock, only when the spec write succeeded. A failed
+record write leaves the previous record, so a value that write took from a changed
+template reads as the user's next time and is kept. `_deregister_agents` removes the
+record with the spec. The prune of an agent a new version dropped removes only the
+spec; its record stays until the app is disabled or uninstalled and is ignored
+meanwhile, because with no spec beside it there is nothing to compare.
 
 The prior file is snapshotted BEFORE the replace (the write path unlinks a legacy
 symlink first, so reading afterwards would find nothing). An unreadable prior file
@@ -1346,16 +1364,20 @@ Pinned by `test_an_update_keeps_an_agent_file_it_cannot_rewrite` and
 `test_an_update_that_needs_consent_leaves_no_agent_file`.
 
 This keeps a user's `model` or `description` across a registry update, a pin-follow
-of an adopted former built-in, or a local update. Disable and re-enable still start
-from the template: a disabled app keeps no agent file, so the same is true when an
-update newly asks for `sessionApproval` and suspends the app. No route passes
+of an adopted former built-in, or a local update, and brings a template value the
+user did not change up to the new version. Pinned by
+`test_an_update_refreshes_what_the_user_did_not_edit` and
+`test_an_edit_stays_the_users_when_a_later_template_matches_it`. Disable and
+re-enable still start from the template: a disabled app keeps no agent file, so the
+same is true when an update newly asks for `sessionApproval` and suspends the app.
+No route passes
 `register_app`'s `prior_agent_configs` (a `snapshot_app_agent_configs` taken before
 a deregister that deletes the files).
 
 Writer: `apps/bridges_agents.py::_register_agents`, `_preserve_user_agent_edits`,
-`_read_agent_config`; the update route `apps/routes_install.py::handle_update_app`
-with `apps/routes_lifecycle.py::_reinstall_from_registry` and
-`_prune_dropped_resources`.
+`_template_record`, `_read_agent_config`; the update route
+`apps/routes_install.py::handle_update_app` with
+`apps/routes_lifecycle.py::_reinstall_from_registry` and `_prune_dropped_resources`.
 
 ## 4. A generated prompt is pinned through the app's policy
 
@@ -2549,7 +2571,11 @@ owner-enable marker the gateway sealed is present, see dashboard-token-auth), an
 with it is the same scoped stream. `kirocrew_client.KiroCrewClient(app_name=...)`
 does the exchange (`authenticate()`) and `create_ws()` opens that socket. There is no
 second delivery channel, and an origin the gateway could not prove is omitted, so
-such a backend has none.
+such a backend has none. A backend that runs in the gateway process (`backend.hooks`
+and no spawn) gets no secret: `await ctx.app_token()` returns that same app-scoped
+token, passing `ctx.app_token` as the client's `on_auth_expired` renews it, and
+`ctx.gateway_origin()` returns the origin a spawned backend gets
+(`apps/gateway_origin.loopback_gateway_origin`, one rule for both).
 
 **`SlotOrigin` is declared by the layer that knows it, never derived.**
 `get_or_create_slot` cannot distinguish a person typing from a background
@@ -5506,6 +5532,39 @@ Writers: `website/src/app-sdk/PullRequestPanel.tsx`, `website/src/app-sdk/index.
 `website/src/components/PullRequestPanel.tsx`, `website/src/components/CommentThreads.tsx`,
 `website/src/app-sdk/sdkLevel.ts`, `apps/app_sdk_level.py`.
 
+## 18h. The issue list reaches an app through the SDK, behind the declared list
+
+`useIssues`, `IssueList` and `IssueCard` on `@kirocrew/app-sdk`
+(`website/src/app-sdk/issues/`) list the issues `POST /api/source/issues` returns, through
+one query shape (`IssueSearchRequest`) and one row shape (`IssueSummary`,
+`website/src/types/index.sources.ts`). The views draw GitHub, GitLab, Jira and Linear
+rows, all four of which the route serves. They are App Kit seam level 6.
+
+The transport is chosen the way §18g chooses the pull-request client, from the
+published identity: an **external** app posts through its scoped client once
+`apiPathAllowed` covers `/api/source/issues`; a **builtin** page uses the dashboard's
+`api.fetchIssues`; **no identity** is the refusal. The refusal is an
+`AppApiPermissionError` from the hook, rendered by `IssueList` as an `ErrorNotice`
+naming the path, and the query stays disabled, so no request is sent. The matcher
+stops at a slash boundary, so `/api/source/issue` (one issue) does not admit the list.
+
+`useIssues` is a `useInfiniteQuery` keyed by the query minus `cursor`, with the
+response's `nextCursor` as the page parameter: a changed query or filter starts again
+from the first page. `IssueList`'s filter bar edits a copy of its `query` prop (state,
+assignee including `me`, labels, text), and a new prop replaces the edits.
+
+Provider strings are rendered as React text with `dir="auto"`. Every link and avatar
+url passes `safeHttpUrl` (http(s), no userinfo) before it becomes an `href` or `src`;
+a row whose url fails it renders without a link. The two views load behind a
+`React.lazy` boundary for the reason §18g gives. `AppSdkIssues.test.tsx` pins the three
+transport answers, the singular-path refusal, paging and its reset, both views for all
+four providers, and the text and url rules.
+
+Writers: `website/src/app-sdk/issues/`, `website/src/app-sdk/index.ts`,
+`website/public/vendor/kirocrew-app-sdk.mjs`, `website/src/api/client/sourceControl.ts`,
+`website/src/types/index.sources.ts`, `website/src/app-sdk/sdkLevel.ts`,
+`apps/app_sdk_level.py`.
+
 ## 19. Spec Builder's backend is composed by lifecycle owner
 
 Spec Builder's backend carries more orchestration than a typical app: agent turns
@@ -6710,7 +6769,7 @@ the set of seams a built-in's code needed from core, published generically. Noth
 any of them names an app. `APP_SDK_LEVEL` is one integer on both sides
 (`apps/app_sdk_level.py`, `website/src/app-sdk/sdkLevel.ts`), pinned equal by
 `test/test_app_sdk_level_mirror.py`. Level 2 adds `ctx.lifecycle` (§32b) and the SDK's
-pull-request panel (§18g). An app reads `ctx.sdk_level` or the SDK export to detect an
+pull-request panel (§18g); level 6 adds the SDK's issue list (§18h). An app reads `ctx.sdk_level` or the SDK export to detect an
 older host and degrade, instead of failing on a missing attribute.
 
 **Structural routes.** `RouteRegistry` reads each item a `routes` hook returns through
@@ -6789,7 +6848,14 @@ gateway's Application is wired in (`turn_host`, passed by both context builders,
 like `crewmate_host`); otherwise `None`. `run(key, text, *, agent, timeout_secs,
 cancel_ack_secs)` runs one turn under `ToolApprovalPolicy.HOOK_BASED` with
 `app=<ctx.name>`, so the PreToolUse gate resolves `POLICY ∩ PROFILE` for this app,
-and admits it through `run_admitted_or_raise(automation=True,
+and passes the gateway's approval prompt as `on_tool_approval`: `_init_task_runner`
+registers `agent_turn_sdk.set_turn_approver(lambda app:
+self._interactive_approval("app", requester=f"app {app}"))`, so a call the gate
+neither denies nor grants asks the owner as a cron job's does (`"app"` is in
+`_BACKGROUND_APPROVAL_SOURCES`, the deny-fast unattended window) instead of reaching
+`_resolve_permission`'s caller-less default approve. With no prompt registered (a
+bare test application) the turn passes none. The turn is admitted through
+`run_admitted_or_raise(automation=True,
 operation=BACKGROUND)`. Session acquisition is outside the budget; past it, or on
 the caller's cancellation, the provider is asked to cancel and the session is reset
 when it does not acknowledge, and the turn lease is always released, never the
@@ -6875,7 +6941,8 @@ Writers: `apps/agent_turn_sdk.py`, `apps/untrusted_text_sdk.py`, `apps/context.p
 `apps/app_sdk_level.py`, `website/src/app-sdk/sdkLevel.ts`,
 `apps/builtins/meetings/app.json`, `apps/builtins/meetings/backend/domain/session.py`,
 `apps/builtins/meetings/backend/domain/translate.py`. Tests:
-`test/test_app_agent_turn_sdk.py`, `test/test_app_untrusted_text_sdk.py`.
+`test/test_app_agent_turn_sdk.py`, `test/test_app_agent_turn_approval.py`,
+`test/test_app_untrusted_text_sdk.py`.
 
 ## 32b. `ctx.lifecycle`: an app's own switch and admission (seam level 2)
 
@@ -7037,7 +7104,7 @@ for the seams above level 1 it uses (`_seam_level_uses`): `agentTools`,
 `permissions.agentTurns` and `permissions.workerAutoApprove` in `app.json` (level 2),
 `credentialMasks` (level 3), and `ctx.turns`, `ctx.untrusted`, `ctx.lifecycle` or
 `ctx.auto_approve` in any `.py` file outside a `tests/` directory, a `test_*.py` or a
-`conftest.py` (level 2), read as an attribute of a context-named receiver or as a
+`conftest.py` (level 2), and `ctx.app_token` or `ctx.gateway_origin` there (level 5), read as an attribute of a context-named receiver or as a
 `getattr`/`hasattr` of that name on any receiver. A level below the highest one found
 is refused, naming what was found, by `compute` and `verify` alike, so a tree that
 feature-detects a seam and degrades still pins at that seam's level, and a host
@@ -7698,8 +7765,8 @@ data-home root, outside its data directory, so they keep their core rows until t
 store moves under `apps/ops-mission-control/data/` (#32681; see `ops-mission-control.md`,
 "Repository boundary").
 
-**Seam level.** The masks are level 3 (`APP_SDK_LEVEL` is 4 since §30.1's tool keys):
-an app that stores a credential reads `ctx.sdk_level` and, below 3, knows nothing masks
+**Seam level.** The masks are level 3 (level 4 adds §30.1's tool keys and level 5
+`ctx.app_token` and `ctx.gateway_origin`): an app that stores a credential reads `ctx.sdk_level` and, below 3, knows nothing masks
 the file.
 
 Writers: `apps/credential_masks.py`, `apps/manifest.py`, `apps/app_sdk_level.py`,
