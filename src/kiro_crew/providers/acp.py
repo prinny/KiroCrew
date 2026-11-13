@@ -87,7 +87,7 @@ from kiro_crew.acp.types import (  # noqa: F401
     effort_config_option_value,
 )
 from kiro_crew.acp_backends import POLICY_ID_BY_BACKEND  # noqa: F401
-from kiro_crew.agent_sdk import host_auth
+from kiro_crew.agent_sdk import custom_backends, host_auth
 from kiro_crew.agent_sdk.backend_identity import is_claude_backend_name
 from kiro_crew.agent_sdk.backends import model_registry_namespace  # noqa: F401
 from kiro_crew.agent_sdk.backends import (
@@ -183,8 +183,13 @@ class AcpProvider(LLMProvider):
     ) -> None:
         # An unrecognized backend would pass every ``_is_<backend>`` check and
         # spawn kiro-cli, so a typo'd config would drive the wrong agent with no
-        # error. Fail at construction instead.
-        if acp_backend not in ACP_BACKENDS_KNOWN:
+        # error. Fail at construction instead. An operator-registered custom
+        # backend (``agent.custom_backends``) is recognized the same way: its
+        # spec was validated at config load, and every ``_is_<backend>`` check
+        # it falls through is one the generic custom path answers instead.
+        if acp_backend not in ACP_BACKENDS_KNOWN and not custom_backends.is_custom_backend(
+            acp_backend
+        ):
             raise ValueError(
                 f"Unknown acp_backend {acp_backend!r}; "
                 f"expected one of {sorted(ACP_BACKENDS_KNOWN)}"
@@ -1483,7 +1488,16 @@ def provider_label(provider: Any) -> str:
     # as that harness, which is more than one mapping key can hold.
     if is_claude_backend_name(backend):
         return PROVIDER_LABEL_CLAUDE
-    return PROVIDER_LABEL_BY_BACKEND.get(backend, PROVIDER_LABEL_DEFAULT)
+    label = PROVIDER_LABEL_BY_BACKEND.get(backend)
+    if label is not None:
+        return label
+    # A custom backend persists under its own id: the closed table's fallback
+    # exists for ids this build does not know at all, and persisting a custom
+    # session under the default label would mistake it for a kiro session --
+    # the exact harm the closed table exists to prevent.
+    if custom_backends.is_custom_backend(backend):
+        return backend
+    return PROVIDER_LABEL_DEFAULT
 
 
 # --------------------------------------------------------------------------- #

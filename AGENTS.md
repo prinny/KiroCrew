@@ -52,6 +52,7 @@ in the **same commit** when you change what it documents.
 | adding or adapting an agent harness (BYO, KAS, claude) | [harness-parity](docs/system-specs/modules/harness-parity.md) (invariants) + [harness-parity-gate](docs/ci/harness-parity-gate.md) (CI) |
 | an agent spec: `agent_discovery.py` and its `agent_discovery_parts/` owners, `agent_spec_format.py`, `agent.py`'s spec writers, its `agent_parts/` owners and `agent_materialization/`, `acp/kas_agents.py`, or any field a spec carries | [agent-spec-fields](src/kiro_crew/docs/agent-spec-fields.md) (what each field does, per backend) + [agent-host-contract](docs/system-specs/modules/agent-host-contract.md) (the per-harness table) |
 | the publicly selectable Claude backend | [claude-code-provider](docs/system-specs/modules/claude-code-provider.md) |
+| an operator-registered custom ACP backend (`agent.custom_backends`, `agent_sdk/custom_backends.py`, `acp/harness/custom.py`) | [custom-backends](docs/system-specs/modules/custom-backends.md) |
 | sessions, slots, session keys, PIDs | [session](docs/system-specs/modules/session.md) + [history](docs/system-specs/modules/history.md) |
 | `shared_crew/`, attributing work to a person, per-person fair admission, presence, shared approvals | [shared-crew](docs/system-specs/modules/shared-crew.md) |
 | killing a runtime, leases and tenancies, sweeps and reapers, `runtime_ownership.py`, `runtime_reconcile.py`, the kill paths of `session_pid.py` and its `session_pid_*.py` owners | [runtime-ownership](docs/system-specs/modules/runtime-ownership.md) |

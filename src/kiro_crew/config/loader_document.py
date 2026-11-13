@@ -404,6 +404,7 @@ def _refuse_unpublishable(data: dict, path: Path) -> None:
     _refuse_deepseek_env_plaintext(data, path)
     _refuse_vault_env_plaintext(data, path, "strands_env", "a Strands session")
     _refuse_agent_env_entries(data, path)
+    _refuse_custom_backends_entries(data, path)
 
 
 def _refuse_deepseek_env_plaintext(data: dict, path: Path) -> None:
@@ -559,6 +560,44 @@ def _refuse_agent_env_entries(data: dict, path: Path) -> None:
         f"{action}, and keep credentials under Settings > Secrets. agent.env refuses "
         f"{detail}. Nothing was written, because an agent process would never receive "
         "that variable."
+    )
+
+
+def _refuse_custom_backends_entries(data: dict, path: Path) -> None:
+    """Refuse an ``agent.custom_backends`` entry registration would not register.
+
+    Registration drops such an entry at load with a gateway-log line, so a
+    write that stored it would succeed while the backend silently never
+    existed. Refusing it here names the id and the offending key at the
+    moment it is saved -- ``kirocrew config set`` prints it, a dashboard
+    write answers 400 with it -- and nothing is written. The rule is
+    ``sections.custom_backend_write_refusals``, the same validation the
+    loader's registration runs; the message carries ids and keys only, never
+    a value.
+
+    Scoped to what THIS write does, exactly like
+    :func:`_refuse_agent_env_entries`: a refused entry a hand edit or an
+    older build already landed, in a mapping this write leaves exactly as it
+    found it, publishes with a warning naming the entry, because every
+    writer in the product reaches this function. A write that changes the
+    mapping has to leave it with no refused entry. An unreadable prior file
+    cannot show the entry pre-existing, so it is refused.
+    """
+    agent = data.get("agent") if isinstance(data, dict) else None
+    mapping = agent.get("custom_backends") if isinstance(agent, dict) else None
+    refusals = _sections.custom_backend_write_refusals(mapping)
+    if not refusals:
+        return
+    detail = "; ".join(refusals)
+    if _agent_key_on_disk(path, "custom_backends") == mapping:
+        logger.warning(
+            "config.json already holds agent.custom_backends entries that are not "
+            "registered (%s); this write left that mapping as it found it.",
+            detail,
+        )
+        return
+    raise ConfigWriteRefused(
+        f"agent.custom_backends refuses {detail}. Nothing was written: fix or " "remove the entry."
     )
 
 

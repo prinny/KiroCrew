@@ -344,6 +344,8 @@ import logging
 import threading
 from typing import FrozenSet, Set
 
+from kiro_crew.agent_sdk import custom_backends as _custom_backends
+
 logger = logging.getLogger(__name__)
 
 # ── Backend identifiers ──
@@ -813,6 +815,51 @@ def register_selectable_backend(backend: str) -> None:
         )
     _baseline.add(backend)
     _selectable.add(backend)
+
+
+def register_custom_selectable_backend(backend: str) -> None:
+    """Make an operator-registered custom backend selectable.
+
+    The dynamic sibling of :func:`register_selectable_backend`, applying the
+    same two guards in the only form available for an id no build ships: the
+    id must be REGISTERED (``agent_sdk.custom_backends`` holds a validated
+    spec for it -- the custom form of "known"), and its routing must not be
+    :attr:`Routing.UNVERIFIED`. A custom id's routing is answered from its
+    declaration by ``routing_for`` and is never ``UNVERIFIED`` by
+    construction, so the second guard is a statement of the invariant rather
+    than a check that can fire -- it is kept anyway, so this registrar
+    refuses on the same terms as the static one if that ever changes.
+
+    Called by the config loader after each successful registration pass, and
+    paired with :func:`unregister_custom_selectable_backend` for ids a later
+    load no longer declares.
+    """
+    if not _custom_backends.is_custom_backend(backend):
+        raise ValueError(
+            f"cannot register {backend!r} as selectable: it is not a registered "
+            "custom backend (agent.custom_backends)"
+        )
+    if routing_for(backend) is Routing.UNVERIFIED:
+        raise ValueError(
+            f"cannot register {backend!r} as selectable: its routing is "
+            f"{Routing.UNVERIFIED.value!r}, so nothing establishes that its tool calls "
+            "reach the host permission gate."
+        )
+    _baseline.add(backend)
+    _selectable.add(backend)
+
+
+def unregister_custom_selectable_backend(backend: str) -> None:
+    """Withdraw a custom backend from both selectable sets.
+
+    Only for ids the custom registry owned: removing a built-in here would
+    let a config edit unship a harness, so a built-in id is refused rather
+    than removed.
+    """
+    if backend in BASELINE_SELECTABLE_BACKENDS:
+        raise ValueError(f"{backend!r} is a built-in backend and cannot be unregistered")
+    _baseline.discard(backend)
+    _selectable.discard(backend)
 
 
 def selectable_backends() -> FrozenSet[str]:

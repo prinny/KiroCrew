@@ -19,6 +19,7 @@ import logging
 import os
 from typing import FrozenSet, Mapping
 
+from kiro_crew.agent_sdk import custom_backends
 from kiro_crew.agent_sdk.backends import (
     ACP_BACKEND_CLAUDE,
     ACP_BACKEND_CODEX,
@@ -653,5 +654,15 @@ def launch_effort_supported(backend: str, level: str) -> bool:
 
 
 def model_registry_namespace(backend: str) -> str:
-    """The model-registry namespace key for *backend* (default ``acp``)."""
-    return _MODEL_REGISTRY_NAMESPACE_BY_BACKEND.get(backend, "acp")
+    """The model-registry namespace key for *backend* (default ``acp``).
+
+    A custom backend namespaces under its own id: its model ids are its
+    adapter's vocabulary, and folding them into the shared ``acp`` namespace
+    would let two registered adapters' catalogues collide in the registry.
+    """
+    namespace = _MODEL_REGISTRY_NAMESPACE_BY_BACKEND.get(backend)
+    if namespace is not None:
+        return namespace
+    if custom_backends.is_custom_backend(backend):
+        return backend
+    return "acp"

@@ -16,8 +16,10 @@ in ``VOCABULARY_PATHS``, which is what lets its ``ACP_BACKEND*`` names be define
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import FrozenSet, Mapping
 
+from kiro_crew.agent_sdk import custom_backends
 from kiro_crew.agent_sdk.backends import (
     ACP_BACKEND_CLAUDE,
     ACP_BACKEND_CODEX,
@@ -375,8 +377,18 @@ def agent_process_markers() -> tuple[str, ...]:
     A tuple of substrings for a cmdline match, which is what
     ``platform_compat.process_matches`` takes. Sorted so the value is stable to read
     in a log, de-duplicated because kiro and KAS share ``kiro-cli``.
+
+    A registered custom backend's marker is the basename of the command its
+    registration declares -- the process the PID reclaim will actually meet
+    on the cmdline -- so an orphaned custom adapter is reclaimable by the
+    same sweep as a shipped harness's child.
     """
-    return tuple(sorted(set(ACP_BACKEND_PROCESS_NAMES.values())))
+    names = set(ACP_BACKEND_PROCESS_NAMES.values())
+    for backend_id in custom_backends.custom_backend_ids():
+        spec = custom_backends.spec_for(backend_id)
+        if spec is not None:
+            names.add(PurePosixPath(spec.command).name or spec.command)
+    return tuple(sorted(names))
 
 
 def launch_for(backend: str) -> SelfServedLaunch:

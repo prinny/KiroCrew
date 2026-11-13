@@ -839,3 +839,96 @@ def validate_acp_failover(value: object) -> dict:
     if unusable:
         raise ValueError(f"chain names {unusable}, which cannot be selected here")
     return dict(value)
+
+
+def _custom_backend_policy() -> dict:
+    """The host policy a custom-backend declaration is validated against.
+
+    Assembled here, beside the two readers below, because the pieces live in
+    modules this one reaches deferred: the reserved ids in the backend
+    registry, and the ``agent.env`` name rules in the sibling env module. The
+    registry leaf (``agent_sdk.custom_backends``) imports none of them, by its
+    own contract, so its caller supplies them.
+    """
+    from kiro_crew.agent_sdk.backends import ACP_BACKENDS_KNOWN, POLICY_ID_BY_BACKEND
+    from kiro_crew.config import sections_agent_env
+
+    return {
+        "reserved_ids": frozenset(ACP_BACKENDS_KNOWN) | frozenset(POLICY_ID_BY_BACKEND.values()),
+        "name_refusal": sections_agent_env.agent_env_refusal,
+        "is_credential_name": lambda name: bool(
+            sections_agent_env.AGENT_ENV_CREDENTIAL_CLASS.search(name)
+        ),
+        "scrub_removes": sections_agent_env.agent_env_scrub_removes,
+    }
+
+
+def normalize_custom_backends(value: object) -> dict:
+    """``agent.custom_backends`` as the loaded config holds it, registration done.
+
+    Load is where a declaration becomes a backend: every entry is validated
+    into the ``agent_sdk.custom_backends`` registry, the selectable registry
+    is synced with the outcome (new ids registered, vanished ids withdrawn),
+    and the loaded value keeps only the entries that registered -- so the
+    loaded config never claims a backend the registry refused. A refused
+    entry is logged with its id and the offending key, never a value, and
+    dropped from the loaded value only: ``config.json`` keeps what the
+    operator wrote, because ``custom_backends`` is one of
+    ``loader_builders._HARNESS_CHOICE_KEYS``, which a full-document save
+    writes back from disk. The hard refusal is on the write path,
+    :func:`validate_custom_backends`.
+    """
+    from kiro_crew.agent_sdk import backends as _backends
+    from kiro_crew.agent_sdk import custom_backends as _custom
+
+    policy = _custom_backend_policy()
+    previous = set(_custom.custom_backend_ids())
+    if value is None:
+        _custom.register_custom_backends(None, **policy)
+        registered: dict = {}
+    elif not isinstance(value, dict):
+        logger.warning("agent.custom_backends ignored: expected an object")
+        _custom.register_custom_backends(None, **policy)
+        registered = {}
+    else:
+        errors = _custom.register_custom_backends(value, **policy)
+        for error in errors:
+            logger.warning("%s; the entry is not registered", error)
+        current = set(_custom.custom_backend_ids())
+        registered = {key: value[key] for key in value if key in current}
+    current = set(_custom.custom_backend_ids())
+    for backend_id in sorted(current - previous):
+        _backends.register_custom_selectable_backend(backend_id)
+    for backend_id in sorted(previous - current):
+        _backends.unregister_custom_selectable_backend(backend_id)
+    return registered
+
+
+def validate_custom_backends(value: object) -> dict:
+    """An ``agent.custom_backends`` value a write may store, else ``ValueError``.
+
+    The write path's refusal (``kirocrew config set``): the same validation
+    registration applies at load, run without registering anything, so a
+    declaration load would drop is turned away at save with its reason.
+    """
+    from kiro_crew.agent_sdk import custom_backends as _custom
+
+    if not isinstance(value, dict):
+        raise ValueError("must be an object mapping a backend id to its declaration")
+    errors = _custom.validate_custom_backends(value, **_custom_backend_policy())
+    if errors:
+        raise ValueError("; ".join(errors))
+    return dict(value)
+
+
+def custom_backend_write_refusals(raw: object) -> tuple[str, ...]:
+    """Each refusal in an ``agent.custom_backends`` value, for the publish floor.
+
+    The rule :func:`config.loader_document._refuse_unpublishable` applies:
+    the same validation registration runs at load, so what a save turns away
+    and what a load drops cannot disagree. Each phrase names the id and the
+    offending key, never a value.
+    """
+    from kiro_crew.agent_sdk import custom_backends as _custom
+
+    return _custom.validate_custom_backends(raw, **_custom_backend_policy())

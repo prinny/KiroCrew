@@ -74,6 +74,7 @@ from kiro_crew.acp.types import (
     overlay_project_scope,
 )
 from kiro_crew.agent_discovery import _read_agent_spec
+from kiro_crew.agent_sdk import custom_backends
 from kiro_crew.agent_sdk.backends import (
     ACP_BACKENDS_CREW_ENFORCES_SPEC_TOOLS_SETTINGS,
     ACP_BACKENDS_CREW_OAUTH_BRIDGE,
@@ -83,7 +84,13 @@ from kiro_crew.mcp_gateway.session_servers import (
     injection_server_names,
     pooled_session_servers,
 )
-from kiro_crew.providers.mirrors import MIRRORS, ProjectionKind, mirror_for, projection_for
+from kiro_crew.providers.mirrors import (
+    MIRRORS,
+    ProjectionKind,
+    has_mirror,
+    mirror_for,
+    projection_for,
+)
 from kiro_crew.security import redact_credentials, redact_exfiltration_urls
 
 if TYPE_CHECKING:
@@ -267,7 +274,7 @@ def _pooled_mcp_servers(self: AcpClient) -> list[dict[str, Any]]:
     RAISES for a backend registered in neither map, and kiro's construction
     path must not gain a failure mode in service of an adapter (H13).
     """
-    if self.backend in MIRRORS:
+    if self.backend in MIRRORS or has_mirror(self.backend):
         return []
     # A mirror-less member backend's own array (``_mirrorless_member_mounts``)
     # sits beside these stubs on the wire. Its entry carries the member's
@@ -1101,6 +1108,17 @@ def _guard_unresolved_mcp_refs(self: AcpClient, wire_servers: Any) -> None:
         logger.debug("declared MCP servers: spec unreadable", exc_info=True)
 
 
+def _custom_array_backend(backend: str) -> bool:
+    """Whether *backend* is a custom registration that takes the session MCP array.
+
+    The dynamic form of ``ACP_BACKENDS_SESSION_MCP_ARRAY`` membership for an
+    id no build ships: the declaration's ``mcp: "array"`` is the membership
+    claim, and ``mcp: "withheld"`` is the refusal of one.
+    """
+    spec = custom_backends.spec_for(backend)
+    return spec is not None and spec.mcp == custom_backends.MCP_ARRAY
+
+
 def _session_mcp_servers(self: AcpClient) -> list[dict[str, Any]]:
     """MCP server array passed to this session's ``session/new`` / ``session/load``.
 
@@ -1137,7 +1155,9 @@ def _session_mcp_servers(self: AcpClient) -> list[dict[str, Any]]:
     MCP install or toggle takes effect on the next session with no gateway
     restart.
     """
-    if self.backend not in ACP_BACKENDS_SESSION_MCP_ARRAY:
+    if self.backend not in ACP_BACKENDS_SESSION_MCP_ARRAY and not _custom_array_backend(
+        self.backend
+    ):
         return []
     if self._session_mcp_cache is None:
         self._session_mcp_cache = self._resolve_session_mcp_servers()
@@ -1331,6 +1351,32 @@ def _goose_session_mcp_servers(self: AcpClient) -> list:
     logger.info(
         "goose session MCP: %d server(s) placed on the session array; this harness "
         "reports neither a mount nor a drop per server [session=%s]",
+        len(servers),
+        self._session_id,
+    )
+    return servers
+
+
+def _custom_session_mcp_servers(self: AcpClient) -> list:
+    """MCP server array passed to a custom backend's ``session/new`` / ``session/load``.
+
+    The generic twin of the per-harness seams beside it: a custom backend
+    registered with ``mcp: "array"`` reads no agent spec of Crew's, so this
+    array -- the shared translation, placed by the generic mirror -- is the
+    only channel, exactly as for the shipped array harnesses. A backend
+    registered ``"withheld"`` never reaches here: the splice gates on the
+    registration, and :func:`_session_mcp_servers` answers ``[]`` for it.
+
+    In-memory only: the spawn path warms ``_session_mcp_cache`` off the loop
+    (harness-parity H13), in ``CustomLaunch.resolve_spawn``.
+    """
+    if getattr(self, "_side_read_only", False):
+        # A Side Chat session mounts no MCP server, as on the other array
+        # harnesses: READ_ONLY refuses every MCP call.
+        return []
+    servers = self._session_mcp_servers()
+    logger.info(
+        "custom backend session MCP: %d server(s) placed on the session array " "[session=%s]",
         len(servers),
         self._session_id,
     )

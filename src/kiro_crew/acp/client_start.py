@@ -103,7 +103,7 @@ from kiro_crew.agent import (
     require_shared_template_within_ceiling,
     require_unchanged_derived_spec,
 )
-from kiro_crew.agent_sdk import host_auth
+from kiro_crew.agent_sdk import custom_backends, host_auth
 from kiro_crew.agent_sdk.backends import (
     ACP_BACKEND_FORBIDDEN_MODES,
     ACP_BACKEND_LAUNCH,
@@ -663,6 +663,7 @@ async def _new_session_following_substitution(self: AcpClient) -> dict:
             *(self._deepseek_session_mcp_servers() if self._is_deepseek else []),
             *(self._copilot_session_mcp_servers() if self._is_copilot else []),
             *(self._pi_session_mcp_servers() if self._is_pi else []),
+            *(self._custom_session_mcp_servers() if self._is_custom else []),
             *(await asyncio.to_thread(self._pooled_mcp_servers)),
         ],
     }
@@ -747,6 +748,7 @@ async def _new_session_following_substitution(self: AcpClient) -> dict:
             *(self._deepseek_session_mcp_servers() if self._is_deepseek else []),
             *(self._copilot_session_mcp_servers() if self._is_copilot else []),
             *(self._pi_session_mcp_servers() if self._is_pi else []),
+            *(self._custom_session_mcp_servers() if self._is_custom else []),
             *(await asyncio.to_thread(self._pooled_mcp_servers)),
         ]
         if self.backend in ACP_BACKENDS_PRUNE_UNSTARTABLE_MCP:
@@ -780,6 +782,13 @@ def _initialize_params(self: AcpClient) -> dict[str, Any]:
     introduced to kiro-cli exactly as the session it probes for was.
     """
     protocol_version: int | str = _PROTOCOL_VERSION_BY_BACKEND.get(self.backend, PROTOCOL_VERSION)
+    # A custom backend declares its handshake dialect in its registration:
+    # an id with no row in the table above would otherwise be introduced to
+    # the adapter in kiro-cli's date-stamped dialect, which a spec-dialect
+    # adapter does not speak.
+    _custom_spec = custom_backends.spec_for(self.backend)
+    if _custom_spec is not None:
+        protocol_version = _custom_spec.protocol_version
     return {
         "protocolVersion": protocol_version,
         "clientInfo": {"name": CLIENT_NAME, "version": CLIENT_VERSION},
@@ -981,6 +990,7 @@ async def _initialize_session(self: AcpClient) -> None:
                         *(self._deepseek_session_mcp_servers() if self._is_deepseek else []),
                         *(self._copilot_session_mcp_servers() if self._is_copilot else []),
                         *(self._pi_session_mcp_servers() if self._is_pi else []),
+                        *(self._custom_session_mcp_servers() if self._is_custom else []),
                         *(await asyncio.to_thread(self._pooled_mcp_servers)),
                     ],
                 }
@@ -1053,6 +1063,8 @@ async def _initialize_session(self: AcpClient) -> None:
                 # own read-back on the response that replaces this one.
                 if self._is_goose and self._resumed:
                     self._verify_goose_routing(load_resp)
+                if self._is_custom and self._resumed:
+                    self._verify_custom_routing(load_resp)
                 if self._is_claude and self._resumed:
                     await self._pin_claude_starting_mode(load_resp)
         else:
@@ -1084,6 +1096,8 @@ async def _initialize_session(self: AcpClient) -> None:
         # an adapter (harness-parity H13).
         if self._is_goose:
             self._verify_goose_routing(session_resp)
+        if self._is_custom:
+            self._verify_custom_routing(session_resp)
         if not self._session_id:
             # Both the initial attempt and the substitution retry failed to
             # yield a session. Raise a clear, actionable error instead of

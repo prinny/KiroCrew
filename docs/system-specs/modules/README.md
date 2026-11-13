@@ -16,6 +16,7 @@ agent loads only the one it needs.
 | [providers.md](providers.md) | The `LLMProvider` interface, the `AcpProvider` the factory selects, and how a backend id is chosen. |
 | [agent-host-contract.md](agent-host-contract.md) | What every known agent backend supplies besides speaking ACP: agent layout, session store, identity, sandbox, MCP delivery, billing, permission engine, auxiliary runtimes, and the new-provider checklist. |
 | [claude-code-provider.md](claude-code-provider.md) | Claude Code as a selectable ACP harness: the live spawn path, the two binaries it needs on the machine, and the MCP gap a Claude session still carries. |
+| [custom-backends.md](custom-backends.md) | Operator-registered ACP harnesses: the `agent.custom_backends` config surface, the registry every per-backend surface answers from, and the Bedrock ACP adapter that is its first consumer. |
 | [harness-parity.md](harness-parity.md) | The invariants keeping the Kiro harness first-class while other harnesses are adapted, and the test pinning each. |
 | [harness-onboarding.md](harness-onboarding.md) | The sequence a new ACP harness walks to land: vocabulary, capability decisions, spawn path, handshake, install probe, selectability, and what a live harness additionally touches. |
 | [model-fallback.md](model-fallback.md) | The throttle-exhaustion model fallback (`agent.fallback_model`): trigger, shared walk, sticky restore, visibility — plus the single-message content-filter refusal fallback (`agent.refusal_fallback_model`). |

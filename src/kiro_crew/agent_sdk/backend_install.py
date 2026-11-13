@@ -39,11 +39,14 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
+import shutil
 import threading
 import time
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Tuple
 
+from kiro_crew.agent_sdk import custom_backends
 from kiro_crew.agent_sdk.backends import (
     ACP_BACKEND_CLAUDE,
     ACP_BACKEND_CODEX,
@@ -407,6 +410,36 @@ def _probe_self_served(backend: str) -> BackendInstallState:
     )
 
 
+def _probe_custom(backend: str) -> BackendInstallState:
+    """One component: the command the operator's declaration names.
+
+    A custom backend's install shape is the self-served shape with the launch
+    record replaced by the registration: the binary that would be missing is
+    the declared command, and the remedy is the declared install hint. An
+    absolute command is tested as a file; a bare name is searched on PATH --
+    the same resolution the spawn itself performs, so the probe and the spawn
+    cannot disagree about whether the backend is installed.
+    """
+    spec = custom_backends.spec_for(backend)
+    policy_id = _policy_id(backend)
+    if spec is None:
+        return BackendInstallState(backend, policy_id, UNKNOWN)
+    command = spec.command
+    if os.path.isabs(command):
+        found = os.path.isfile(command) and os.access(command, os.X_OK)
+    else:
+        found = shutil.which(command) is not None
+    if found:
+        return BackendInstallState(backend, policy_id, INSTALLED)
+    return BackendInstallState(
+        backend,
+        policy_id,
+        MISSING,
+        (command,),
+        spec.install_hint,
+    )
+
+
 def _probe_codex() -> BackendInstallState:
     """The Codex backend needs one component, and names it when it is absent.
 
@@ -651,7 +684,15 @@ def probe_backend(backend: str) -> BackendInstallState:
         epoch = _epoch_locked(backend)
 
     probe = _PROBES.get(backend)
-    if probe is None:
+    if probe is None and custom_backends.is_custom_backend(backend):
+        # No code row exists for a custom id, by design: the one generic probe
+        # answers for all of them from the registration.
+        try:
+            state = _probe_custom(backend)
+        except Exception:
+            logger.debug("custom install probe failed for %r", backend, exc_info=True)
+            state = BackendInstallState(backend, _policy_id(backend), UNKNOWN)
+    elif probe is None:
         logger.debug("no install probe for agent backend %r; reporting unknown", backend)
         state = BackendInstallState(backend, _policy_id(backend), UNKNOWN)
     else:

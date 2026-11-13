@@ -81,6 +81,7 @@ from kiro_crew.acp.types import (
     model_registry_namespace,
 )
 from kiro_crew.agent import DerivedSpecSnapshot
+from kiro_crew.agent_sdk import custom_backends
 from kiro_crew.agent_sdk.capabilities import capabilities_for
 from kiro_crew.config.paths import KEYLESS_WORK_DIR_NAME, config_dir
 from kiro_crew.mcp_gateway.claim import mint_stub_session_token
@@ -879,6 +880,7 @@ class AcpClient:
     _discard_pi_mcp_handoff = _client_mcp_array._discard_pi_mcp_handoff
     _discard_copilot_mcp_config = _client_mcp_array._discard_copilot_mcp_config
     _goose_session_mcp_servers = _client_mcp_array._goose_session_mcp_servers
+    _custom_session_mcp_servers = _client_mcp_array._custom_session_mcp_servers
     _invalidate_session_mcp_projection = _client_mcp_array._invalidate_session_mcp_projection
     _prepare_session_mcp = _client_mcp_array._prepare_session_mcp
     _mcp_timeout_progress = _client_mcp_array._mcp_timeout_progress
@@ -959,6 +961,15 @@ class AcpClient:
     @property
     def _is_copilot(self) -> bool:
         return self.backend == ACP_BACKEND_COPILOT
+
+    @property
+    def _is_custom(self) -> bool:
+        """Whether this session's backend is an operator-registered custom backend.
+
+        A registry question rather than an id comparison, because the set of
+        custom ids is the operator's, not the build's.
+        """
+        return custom_backends.is_custom_backend(self.backend)
 
     @property
     def _is_strands(self) -> bool:
@@ -1381,6 +1392,7 @@ class AcpClient:
     # Answer an ``AcpClient`` session's permission requests and enforce its tool restrictions: ``kiro_crew.acp.client_permissions``.
     _apply_session_permission_routing = _client_permissions._apply_session_permission_routing
     _verify_goose_routing = _client_permissions._verify_goose_routing
+    _verify_custom_routing = _client_permissions._verify_custom_routing
     approve_tool = _client_permissions.approve_tool
 
     def take_batch_refusal(self, request_id: str | int) -> str | None:

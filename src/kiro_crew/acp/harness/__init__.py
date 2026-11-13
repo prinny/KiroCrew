@@ -34,6 +34,7 @@ from kiro_crew.acp.harness.base import (
 from kiro_crew.acp.harness.claude import ClaudeLaunch
 from kiro_crew.acp.harness.codex import CodexHarness
 from kiro_crew.acp.harness.copilot import CopilotLaunch
+from kiro_crew.acp.harness.custom import CustomLaunch
 from kiro_crew.acp.harness.deepseek import DeepseekLaunch
 from kiro_crew.acp.harness.goose import GooseLaunch
 from kiro_crew.acp.harness.kas import KasHarness
@@ -58,6 +59,7 @@ __all__ = [
     "ClaudeLaunch",
     "CodexHarness",
     "CopilotLaunch",
+    "CustomLaunch",
     "DeepseekLaunch",
     "GooseLaunch",
     "HarnessAdapter",
@@ -134,4 +136,12 @@ def process_adapter_for(backend: str) -> ProcessAdapter | None:
     is asked to launch one -- exactly the set that reached that arm before.
     """
     adapter = _PROCESS_ADAPTERS.get(backend)
-    return adapter() if adapter is not None else None
+    if adapter is not None:
+        return adapter()
+    # An operator-registered custom backend has no code row here, by design:
+    # the one generic launch serves every id the registry holds.
+    from kiro_crew.agent_sdk import custom_backends
+
+    if custom_backends.is_custom_backend(backend):
+        return CustomLaunch(backend)
+    return None

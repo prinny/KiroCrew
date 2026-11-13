@@ -183,10 +183,13 @@ from kiro_crew.config.sections_agent_fields import (  # noqa: F401
     coerce_refusal_fallback_model,
     coerce_role_efforts,
     coerce_role_models,
+    custom_backend_write_refusals,
     normalize_acp_failover,
     normalize_agent_model,
+    normalize_custom_backends,
     safe_imported,
     validate_acp_failover,
+    validate_custom_backends,
     worker_session_defaults,
 )
 from kiro_crew.config.sections_browser import (  # noqa: F401

@@ -23,6 +23,7 @@ from collections.abc import Iterable
 from enum import Enum
 from typing import FrozenSet
 
+from kiro_crew.agent_sdk import custom_backends
 from kiro_crew.agent_sdk.backends import (
     ACP_BACKEND_CLAUDE,
     ACP_BACKEND_CODEX,
@@ -727,18 +728,61 @@ def prompt_command_issue(backend: str, texts: Iterable[str]) -> str:
 
 
 def routing_for(backend: str) -> "Routing":
-    """The routing mechanism for *backend*, failing closed on an unknown id."""
-    return ACP_BACKEND_ROUTING.get(backend, Routing.UNVERIFIED)
+    """The routing mechanism for *backend*, failing closed on an unknown id.
+
+    An operator-registered custom backend (``agent_sdk.custom_backends``) has
+    no row in the frozen table; its routing is the mechanism its declaration
+    names, answered here so every consumer of this function -- the tool gate,
+    the selectable registrar, the card -- sees one answer. A declared kind is
+    never ``UNVERIFIED``: the declaration IS the routing establishment the
+    selectable registrar's guard exists to demand, and each kind maps to a
+    mechanism generic code implements.
+    """
+    routing = ACP_BACKEND_ROUTING.get(backend)
+    if routing is not None:
+        return routing
+    spec = custom_backends.spec_for(backend)
+    if spec is None:
+        return Routing.UNVERIFIED
+    if spec.permission_kind == custom_backends.PERMISSION_SESSION_CONFIG:
+        return Routing.SESSION_CONFIG
+    if spec.permission_kind == custom_backends.PERMISSION_SEEDED and spec.permission_verify_id:
+        return Routing.VERIFIED_SEEDED_SETTINGS
+    # 'seeded' without a read-back and 'asks' share Claude's posture: a seed
+    # or the agent's own asking, declared and unenforced.
+    return Routing.SEEDED_SETTINGS
 
 
 def permission_config_for(backend: str) -> tuple:
     """The ``(option_id, value)`` *backend* needs, or ``("", "")`` when it needs none."""
-    return ACP_BACKEND_PERMISSION_CONFIG.get(backend, ("", ""))
+    row = ACP_BACKEND_PERMISSION_CONFIG.get(backend)
+    if row is not None:
+        return row
+    spec = custom_backends.spec_for(backend)
+    if spec is not None and spec.permission_kind == custom_backends.PERMISSION_SESSION_CONFIG:
+        return (spec.permission_option_id, spec.permission_value)
+    return ("", "")
 
 
 def permission_setting_for(backend: str) -> tuple:
-    """The ``(setting_key, value)`` *backend* seeds, or ``("", "")`` when it seeds none."""
-    return ACP_BACKEND_PERMISSION_SETTING.get(backend, ("", ""))
+    """The ``(setting_key, value)`` *backend* seeds, or ``("", "")`` when it seeds none.
+
+    For a custom backend the "setting" a verified read-back checks is the
+    config option its declaration names: ``tool_gate.seeded_setting_issue``
+    compares the value read off ``session/new`` against the required one,
+    which is exactly the pair returned here.
+    """
+    row = ACP_BACKEND_PERMISSION_SETTING.get(backend)
+    if row is not None:
+        return row
+    spec = custom_backends.spec_for(backend)
+    if (
+        spec is not None
+        and spec.permission_kind == custom_backends.PERMISSION_SEEDED
+        and spec.permission_verify_id
+    ):
+        return (spec.permission_verify_id, spec.permission_value)
+    return ("", "")
 
 
 def gate_probe_command_for(backend: str) -> str:

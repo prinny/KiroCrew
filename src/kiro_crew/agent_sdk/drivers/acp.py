@@ -315,7 +315,15 @@ def provider_label_for_backend(backend: str) -> str:
 
     if is_claude_backend_name(backend):
         return PROVIDER_LABEL_CLAUDE
-    return PROVIDER_LABEL_BY_BACKEND.get(backend, PROVIDER_LABEL_DEFAULT)
+    label = PROVIDER_LABEL_BY_BACKEND.get(backend)
+    if label is not None:
+        return label
+    # A custom backend's label is its own id (see providers.acp.provider_label).
+    from kiro_crew.agent_sdk import custom_backends
+
+    if custom_backends.is_custom_backend(backend):
+        return backend
+    return PROVIDER_LABEL_DEFAULT
 
 
 def _provider_backend(provider: object) -> object:

@@ -169,7 +169,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, FrozenSet, Mapping, Optional, Tuple
 
-from kiro_crew.agent_sdk import backends
+from kiro_crew.agent_sdk import backends, custom_backends
 from kiro_crew.agent_sdk.backend_mcp_ability import ability_payload
 
 # ── Card line ids ──
@@ -822,6 +822,49 @@ KIRO_FAMILY_MARKER_SET = "ACP_BACKENDS_KIRO_FAMILY"
 #: reader's wording belongs in the locale catalogs like every other card string.
 REASON_NO_DRIVEN_CAPTURE = "no_driven_capture"
 
+#: A line an operator-registered custom backend's declaration does not answer.
+#:
+#: A custom backend's card is its DECLARATION, not a measurement: the lines the
+#: declaration answers (the session MCP array, a model config option, an effort
+#: config option) are read from it, and every other line is unmeasured rather
+#: than a measured absence -- Crew has run nothing against an external agent
+#: it does not ship, and a crossed-out line would claim a measurement that was
+#: never made. Same code shape as above: the panel keys its wording off it.
+REASON_DECLARED_NOT_MEASURED = "declared_not_measured"
+
+#: The frozen set names a custom backend's declaration answers, by declaration
+#: fact. Named as strings and resolved against the spec, as every set name in
+#: this module is a string: a custom id is in none of the frozen sets, so its
+#: membership in these three is its registration, read at this seam.
+_CUSTOM_DECLARED_SETS = (
+    "ACP_BACKENDS_SESSION_MCP_ARRAY",
+    "ACP_BACKENDS_MODEL_VIA_CONFIG_OPTION",
+    "ACP_BACKENDS_EFFORT_VIA_CONFIG_OPTION",
+)
+
+
+def _custom_declared_answer(backend: str, spec: _LineSpec) -> Optional[bool]:
+    """The declaration's answer for *spec*'s line, or ``None`` when it has none.
+
+    Only the sets in :data:`_CUSTOM_DECLARED_SETS` are declaration-answered.
+    ``None`` -- for a built-in, and for a custom line the declaration does not
+    reach -- leaves the frozen-membership answer exactly as it was.
+    """
+    cspec = custom_backends.spec_for(backend)
+    if cspec is None:
+        return None
+    answers = []
+    for name in spec.sets:
+        if name == "ACP_BACKENDS_SESSION_MCP_ARRAY":
+            answers.append(cspec.mcp == custom_backends.MCP_ARRAY)
+        elif name == "ACP_BACKENDS_MODEL_VIA_CONFIG_OPTION":
+            answers.append(bool(cspec.model_option_id))
+        elif name == "ACP_BACKENDS_EFFORT_VIA_CONFIG_OPTION":
+            answers.append(bool(cspec.effort_option_id))
+    if not answers:
+        return None
+    return any(answers)
+
 
 @dataclass(frozen=True)
 class UnmeasuredLine:
@@ -1003,7 +1046,9 @@ def _holds(backend: str, spec: _LineSpec) -> bool:
             continue
         if backend in _membership(name):
             return True
-    return False
+    # A custom backend is in no frozen set; the three sets its declaration
+    # answers read as membership through the declaration instead.
+    return _custom_declared_answer(backend, spec) is True
 
 
 def _unmeasured_lines(backend: str) -> Dict[str, UnmeasuredLine]:
@@ -1075,6 +1120,23 @@ def _card_lines(
         if held and spec.id in gated:
             available = _advertised(init or {}, ADVERTISED_FIELD_BY_LINE[spec.id])
         entry = None if held else declared.get(spec.id)
+        if _custom_declared_answer(backend, spec) is not None:
+            # The declaration answers this line: its answer is the card's,
+            # measured by the declaration itself rather than by a driven run.
+            entry = None
+        elif entry is None and custom_backends.is_custom_backend(backend):
+            # A custom line the declaration does not answer is unmeasured,
+            # never a measured absence: Crew ships no measurement for an
+            # external agent, and the card says so instead of crossing it out.
+            produced.append(
+                CardLine(
+                    id=spec.id,
+                    available=False,
+                    measured=False,
+                    unmeasured_reason=REASON_DECLARED_NOT_MEASURED,
+                )
+            )
+            continue
         produced.append(
             CardLine(
                 id=spec.id,
