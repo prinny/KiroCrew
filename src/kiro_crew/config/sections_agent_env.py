@@ -462,10 +462,16 @@ def _agent_env_denied(upper: str) -> bool:
     )
 
 
-def agent_env_refusal(name: str) -> str | None:
-    """Why ``agent.env`` refuses *name*, or ``None`` when it is accepted.
+def agent_env_reserved_refusal(name: str) -> str | None:
+    """Why *name* is Crew-owned or reserved, or ``None`` when it is not.
 
-    The reason is a short phrase for a log line; it never carries the value.
+    The reserved half of :func:`agent_env_refusal`: the grammar, the denied
+    names/prefixes/suffixes Kiro Crew or the sandbox owns, and the home-override
+    names. It deliberately does NOT apply the credential class: a caller that
+    accepts credential-shaped names in a non-plaintext form (the custom-backend
+    registry, which accepts them only as ``secret://`` references) consults
+    this refusal for every value shape and decides the credential class itself.
+    The reason never carries a value.
     """
     if not AGENT_ENV_NAME_GRAMMAR.fullmatch(name):
         return "it is not an environment-variable name ([A-Za-z_][A-Za-z0-9_]*)"
@@ -480,6 +486,17 @@ def agent_env_refusal(name: str) -> str | None:
             "it relocates a harness's sign-in directory, which the credential "
             "read gate resolves from the gateway's own environment"
         )
+    return None
+
+
+def agent_env_refusal(name: str) -> str | None:
+    """Why ``agent.env`` refuses *name*, or ``None`` when it is accepted.
+
+    The reason is a short phrase for a log line; it never carries the value.
+    """
+    reserved = agent_env_reserved_refusal(name)
+    if reserved is not None:
+        return reserved
     if AGENT_ENV_CREDENTIAL_CLASS.search(name):
         return (
             "the name looks like a credential; agent.env is stored in plaintext, "

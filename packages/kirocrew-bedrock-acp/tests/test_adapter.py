@@ -276,7 +276,7 @@ class _FakeControl:
                                 "modelName": "Provisioned Only",
                                 "modelArn": "arn:model:provisioned",
                                 "inferenceTypesSupported": ["PROVISIONED"],
-                            }
+                            },
                         ]
                     }
                 ]

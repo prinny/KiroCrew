@@ -28,6 +28,7 @@ def _policy() -> dict:
     return {
         "reserved_ids": frozenset(ACP_BACKENDS_KNOWN) | frozenset(POLICY_ID_BY_BACKEND.values()),
         "name_refusal": sections_agent_env.agent_env_refusal,
+        "reserved_name_refusal": sections_agent_env.agent_env_reserved_refusal,
         "is_credential_name": lambda name: bool(
             sections_agent_env.AGENT_ENV_CREDENTIAL_CLASS.search(name)
         ),
@@ -149,6 +150,64 @@ def test_env_name_outside_the_grammar_is_refused():
     entry = dict(BEDROCK, env={"1BAD": "x"})
     errors = _register({"bedrock": entry})
     assert errors and "1BAD" in errors[0]
+
+
+# Regression (validator finding F1): the credential-shaped branch used to
+# return accept for a secret:// value BEFORE the Crew-owned refusal was
+# consulted, so a Crew-owned credential-shaped name registered as a
+# reference and spawn resolved it into the child env. Design §3 rule 4
+# refuses Crew-owned names with no value-shape exception.
+_CREW_OWNED_CREDENTIAL_NAMES = ("KIROCREW_API_KEY", "PYTHON_API_TOKEN", "KIRO_API_TOKEN")
+
+
+@pytest.mark.parametrize("name", _CREW_OWNED_CREDENTIAL_NAMES)
+def test_env_crew_owned_credential_name_refused_as_secret_reference(name):
+    entry = dict(BEDROCK, env={name: "secret://x"})
+    errors = _register({"bedrock": entry})
+    assert errors and name in errors[0]
+    assert not custom_backends.is_custom_backend("bedrock")
+
+
+@pytest.mark.parametrize("name", _CREW_OWNED_CREDENTIAL_NAMES)
+def test_env_crew_owned_credential_name_refused_as_plaintext(name):
+    entry = dict(BEDROCK, env={name: "plaintext-value"})
+    errors = _register({"bedrock": entry})
+    assert errors and name in errors[0]
+    assert not custom_backends.is_custom_backend("bedrock")
+
+
+def test_env_crew_owned_name_refused_as_secret_reference():
+    # PATH is not credential-shaped; its refusal already applied to every
+    # shape, and still does after the ordering fix.
+    entry = dict(BEDROCK, env={"PATH": "secret://x"})
+    errors = _register({"bedrock": entry})
+    assert errors and "PATH" in errors[0]
+
+
+# Design §3's stated consequence -- "AWS credentials can never be bound
+# through this surface in a form the adapter could be handed by Crew" --
+# covers AWS_ACCESS_KEY_ID too: the scrub sets refuse the AWS_SECRET /
+# AWS_SESSION family, and the key-id name is refused here for both shapes.
+def test_env_aws_access_key_id_refused_as_secret_reference():
+    entry = dict(BEDROCK, env={"AWS_ACCESS_KEY_ID": "secret://x"})
+    errors = _register({"bedrock": entry})
+    assert errors and "AWS_ACCESS_KEY_ID" in errors[0]
+    assert not custom_backends.is_custom_backend("bedrock")
+
+
+def test_env_aws_access_key_id_refused_as_plaintext():
+    entry = dict(BEDROCK, env={"AWS_ACCESS_KEY_ID": "plaintext-value"})
+    errors = _register({"bedrock": entry})
+    assert errors and "AWS_ACCESS_KEY_ID" in errors[0]
+    assert not custom_backends.is_custom_backend("bedrock")
+
+
+def test_env_non_crew_owned_credential_name_still_accepted_as_secret_reference():
+    # Guard against over-refusal: a credential-shaped name that is neither
+    # Crew-owned/reserved nor scrub-listed is still accepted as secret://.
+    entry = dict(BEDROCK, env={"VENDOR_API_TOKEN": "secret://x"})
+    assert _register({"bedrock": entry}) == ()
+    assert custom_backends.spec_for("bedrock").env_map == {"VENDOR_API_TOKEN": "secret://x"}
 
 
 # ── Permission declarations ──
@@ -596,3 +655,35 @@ def test_a_second_consumer_registers_through_the_same_surface():
     assert bedrock_lines["crew_tools"].available
     assert not echo_lines["crew_tools"].available and echo_lines["crew_tools"].measured
     assert not echo_lines["model_switch"].available and echo_lines["model_switch"].measured
+
+
+@pytest.mark.asyncio
+async def test_second_consumer_spawn_plan_matches_its_declaration(monkeypatch):
+    """The generic launch plans the second consumer from its declaration.
+
+    Same generic adapter as the first consumer, a different id: the argv
+    is the declared command/args, the masked posture carries the
+    preflight mask into the plan, the seeded posture's seed env is what
+    apply_spawn_env puts on the child, and MCP withheld means the
+    session's MCP array is never warmed. The sandbox floor itself is
+    stubbed (the harness-contract precedent): it is a host fact, not a
+    fact of the declaration this test pins.
+    """
+    from kiro_crew.acp import launch as launch_mod
+    from kiro_crew.acp.harness import process_adapter_for
+
+    entry = dict(ECHO_AGENT, command=sys.executable, args=["-m", "echo_acp"])
+    assert _register({"echo-agent": entry}) == ()
+    adapter = process_adapter_for("echo-agent")
+    assert adapter is not None
+    hidden = (str(Path.home() / ".echo-acp"),)
+    monkeypatch.setattr(launch_mod, "_sandbox_preflight", lambda backend, mode: hidden)
+    session = _FakeSession()
+    plan = await adapter.resolve_spawn(_spawn_context(session))
+    assert plan.argv == [sys.executable, "-m", "echo_acp"]
+    assert plan.stderr_label == "Echo (generic ACP agent)"
+    assert plan.extra_hidden_dirs == hidden
+    assert not session.prepared  # mcp: "withheld" warms no session MCP array
+    env: dict = {}
+    adapter.apply_spawn_env(env)
+    assert env == {"ECHO_MODE": "ask"}  # the declared permission seed env

@@ -74,6 +74,16 @@ MCP_WITHHELD = "withheld"
 POSTURE_MASKED = "masked"
 POSTURE_ADAPTER_CHAIN = "adapter_chain"
 
+#: The AWS access key id name. The spawn scrub already refuses the
+#: ``AWS_SECRET`` / ``AWS_SESSION`` family, but this name is in neither set
+#: and is credential-shaped, so without an explicit refusal it could be
+#: bound as a ``secret://`` reference. Design §3 states the consequence
+#: this surface must hold by construction: "AWS credentials can never be
+#: bound through this surface in a form the adapter could be handed by
+#: Crew" -- so this name is refused for literal and ``secret://`` values
+#: alike, like every other AWS credential name.
+_AWS_ACCESS_KEY_ID = "AWS_ACCESS_KEY_ID"
+
 #: The one verify source generic code implements today: read the named ACP
 #: config option's current value back off ``session/new`` and compare it to
 #: the required value, through ``tool_gate.seeded_setting_issue``.
@@ -194,16 +204,31 @@ def _env_refusal(
     name_refusal: Callable[[str], Optional[str]],
     is_credential_name: Callable[[str], bool],
     scrub_removes: Callable[[str], bool],
+    reserved_name_refusal: Optional[Callable[[str], Optional[str]]] = None,
 ) -> Optional[str]:
     """Why one env binding is refused, or ``None`` when it is accepted.
 
-    The ``agent.env`` rule, shared: grammar, value shape, the spawn scrub, and
-    the reserved-name refusal the config module owns. ONE extension, and it is
-    the deepseek provider-env precedent (``DEEPSEEK_API_KEY: secret://...``):
-    a credential-shaped name is accepted when -- and only when -- its value is
-    a ``secret://`` vault reference. Plaintext under a credential-shaped name
-    is refused, so a custom backend's config can never become a second,
-    unguarded place a secret is stored.
+    The ``agent.env`` rule, shared, applied in the design's order (§3):
+
+    1. grammar and value shape;
+    2. a name the spawn scrub removes is refused, for literal and
+       ``secret://`` values alike (rule 2);
+    3. ``AWS_ACCESS_KEY_ID`` is refused for both shapes (see
+       ``_AWS_ACCESS_KEY_ID``: §3's consequence is that AWS credentials
+       can never be bound through this surface in a form the adapter
+       could be handed by Crew);
+    4. Crew-owned / reserved names are refused, for literal and
+       ``secret://`` values alike (rule 4) -- this refusal is consulted
+       BEFORE the credential-shaped rule below, so a credential-shaped
+       name that is also Crew-owned is never accepted as a reference;
+    5. a credential-shaped name is refused for plaintext and accepted
+       only as a ``secret://`` vault reference (rule 3, the deepseek
+       provider-env precedent), and then only when rules 2-4 did not
+       refuse the name.
+
+    Plaintext under a credential-shaped name is refused, so a custom
+    backend's config can never become a second, unguarded place a secret
+    is stored.
     """
     if not isinstance(name, str) or not _ENV_NAME_GRAMMAR.fullmatch(name):
         return "the name is not an environment-variable name ([A-Za-z_][A-Za-z0-9_]*)"
@@ -215,6 +240,28 @@ def _env_refusal(
         return "the value cannot be encoded for a process environment"
     if scrub_removes(name):
         return "the agent environment scrub removes that name, so the binding would never reach the child"
+    if name.upper() == _AWS_ACCESS_KEY_ID:
+        return (
+            "AWS credentials can never be bound through this surface in a form "
+            "the adapter could be handed by Crew, so that name is refused for "
+            "literal and secret:// values alike"
+        )
+    if reserved_name_refusal is not None:
+        reserved_reason = reserved_name_refusal(name)
+    else:
+        # Legacy wiring passes the full ``agent.env`` refusal, whose
+        # credential-class phrase ("the name looks like a credential...")
+        # is the one refusal this surface re-decides by value shape in
+        # step 5; every other phrase it returns is a Crew-owned /
+        # reserved-name refusal and applies here, to every value shape.
+        full_reason = name_refusal(name)
+        reserved_reason = (
+            None
+            if (full_reason is not None and "looks like a credential" in full_reason)
+            else full_reason
+        )
+    if reserved_reason is not None:
+        return reserved_reason
     if is_credential_name(name):
         if value.startswith(SECRET_REF_PREFIX) and len(value) > len(SECRET_REF_PREFIX):
             return None
@@ -222,7 +269,7 @@ def _env_refusal(
             "the name looks like a credential; give its value as a secret:// "
             "reference to a vault entry, never as plaintext"
         )
-    return name_refusal(name)
+    return None
 
 
 def _env_map_refusal(
@@ -231,6 +278,7 @@ def _env_map_refusal(
     name_refusal: Callable[[str], Optional[str]],
     is_credential_name: Callable[[str], bool],
     scrub_removes: Callable[[str], bool],
+    reserved_name_refusal: Optional[Callable[[str], Optional[str]]] = None,
 ) -> Tuple[Optional[Tuple[Tuple[str, str], ...]], Optional[str]]:
     """Parse one env mapping, or refuse it whole with the first reason."""
     if raw is None:
@@ -245,6 +293,7 @@ def _env_map_refusal(
             name_refusal=name_refusal,
             is_credential_name=is_credential_name,
             scrub_removes=scrub_removes,
+            reserved_name_refusal=reserved_name_refusal,
         )
         if reason is not None:
             return None, f"env name {name!r}: {reason}"
@@ -259,6 +308,7 @@ def _parse_spec(
     name_refusal: Callable[[str], Optional[str]],
     is_credential_name: Callable[[str], bool],
     scrub_removes: Callable[[str], bool],
+    reserved_name_refusal: Optional[Callable[[str], Optional[str]]] = None,
 ) -> Tuple[Optional[CustomBackendSpec], Optional[str]]:
     """One config entry -> one spec, or the refusal that names the bad key."""
     if not isinstance(raw, Mapping):
@@ -295,6 +345,7 @@ def _parse_spec(
         name_refusal=name_refusal,
         is_credential_name=is_credential_name,
         scrub_removes=scrub_removes,
+        reserved_name_refusal=reserved_name_refusal,
     )
     if err is not None or env is None:
         return None, err or "'env' must be an object mapping names to values"
@@ -319,6 +370,7 @@ def _parse_spec(
         name_refusal=name_refusal,
         is_credential_name=is_credential_name,
         scrub_removes=scrub_removes,
+        reserved_name_refusal=reserved_name_refusal,
     )
     if err is not None or seed_env is None:
         return None, (err or "'permission.seed_env' must be an object").replace(
@@ -422,6 +474,7 @@ def _validate_all(
     name_refusal: Callable[[str], Optional[str]],
     is_credential_name: Callable[[str], bool],
     scrub_removes: Callable[[str], bool],
+    reserved_name_refusal: Optional[Callable[[str], Optional[str]]] = None,
 ) -> Tuple[dict, Tuple[str, ...]]:
     """Parse every entry in *raw*: the specs that validate, and the refusals.
 
@@ -456,6 +509,7 @@ def _validate_all(
             name_refusal=name_refusal,
             is_credential_name=is_credential_name,
             scrub_removes=scrub_removes,
+            reserved_name_refusal=reserved_name_refusal,
         )
         if err is not None:
             errors.append(f"agent.custom_backends {backend_id!r}: {err}")
@@ -471,6 +525,7 @@ def validate_custom_backends(
     name_refusal: Callable[[str], Optional[str]],
     is_credential_name: Callable[[str], bool],
     scrub_removes: Callable[[str], bool],
+    reserved_name_refusal: Optional[Callable[[str], Optional[str]]] = None,
 ) -> Tuple[str, ...]:
     """The refusals in *raw*, without registering anything.
 
@@ -484,6 +539,7 @@ def validate_custom_backends(
         name_refusal=name_refusal,
         is_credential_name=is_credential_name,
         scrub_removes=scrub_removes,
+        reserved_name_refusal=reserved_name_refusal,
     )
     return errors
 
@@ -495,6 +551,7 @@ def register_custom_backends(
     name_refusal: Callable[[str], Optional[str]],
     is_credential_name: Callable[[str], bool],
     scrub_removes: Callable[[str], bool],
+    reserved_name_refusal: Optional[Callable[[str], Optional[str]]] = None,
 ) -> Tuple[str, ...]:
     """Validate *raw* (the ``agent.custom_backends`` value) and register it.
 
@@ -514,6 +571,7 @@ def register_custom_backends(
         name_refusal=name_refusal,
         is_credential_name=is_credential_name,
         scrub_removes=scrub_removes,
+        reserved_name_refusal=reserved_name_refusal,
     )
     _SPECS.clear()
     _SPECS.update(specs)

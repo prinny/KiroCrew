@@ -856,6 +856,7 @@ def _custom_backend_policy() -> dict:
     return {
         "reserved_ids": frozenset(ACP_BACKENDS_KNOWN) | frozenset(POLICY_ID_BY_BACKEND.values()),
         "name_refusal": sections_agent_env.agent_env_refusal,
+        "reserved_name_refusal": sections_agent_env.agent_env_reserved_refusal,
         "is_credential_name": lambda name: bool(
             sections_agent_env.AGENT_ENV_CREDENTIAL_CLASS.search(name)
         ),
