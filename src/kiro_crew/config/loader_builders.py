@@ -609,7 +609,12 @@ _MEMBER_HARNESS_KEY = "member_acp_backend"
 #: vocabulary on disk and in ``to_dict()`` and as runtime ids on the dataclass.
 # ``acp_failover`` is here for the same reason: its loaded value drops chain
 # members this deployment cannot select, and a save must not erase them.
-_HARNESS_CHOICE_KEYS: tuple[str, ...] = ("acp_backend", "member_acp_backend", "acp_failover")
+_HARNESS_CHOICE_KEYS: tuple[str, ...] = (
+    "acp_backend",
+    "member_acp_backend",
+    "acp_failover",
+    "custom_backends",
+)
 
 
 def _stored_agent_dict(agent: AgentConfig) -> dict:
@@ -763,6 +768,12 @@ def mark_member_backend_inherited(agent: AgentConfig, inherited: bool) -> None:
 
 def _agent_section_fields(agent_data: dict) -> AgentConfig:
     section = _sections.SectionReader(AgentConfig, agent_data)
+    # Registration BEFORE the backend choices below are read: a custom id is
+    # selectable only once its declaration has registered, and
+    # ``_read_backend_choice`` judges ``agent.acp_backend`` against the
+    # selectable set -- read first, a config that registers the very backend
+    # it selects would have its own choice degraded to the floor.
+    custom_backends = _sections.normalize_custom_backends(section.get("custom_backends"))
     return AgentConfig(
         approval_mode=section.get("approval_mode"),
         streaming=section.get("streaming"),
@@ -784,6 +795,7 @@ def _agent_section_fields(agent_data: dict) -> AgentConfig:
             section, agent_data, "member_acp_backend", inherit=main_backend
         ),
         acp_failover=_sections.normalize_acp_failover(section.get("acp_failover")),
+        custom_backends=custom_backends,
         kas_bundle=_resolved_kas_bundle(agent_data),
         kas_persist_mcp_sign_in=section.read("kas_persist_mcp_sign_in", _safe_bool),
         kas_repair_kiro_cli_extract=section.read("kas_repair_kiro_cli_extract", _safe_bool),

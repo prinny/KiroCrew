@@ -292,6 +292,94 @@ Bot's saved spec and its worker-dispatch tools. A save accepts only those.
 Each choice says when the Bot's workers cannot start on it. A pin
 saved by hand to a harness not on that list still shows, marked unavailable.
 
+### Custom backends
+
+Any program that speaks ACP v1 over stdio can become a backend without a
+Kiro Crew code change. Declare it under `agent.custom_backends`, an object
+mapping a backend id to its declaration:
+
+```json
+{
+  "agent": {
+    "custom_backends": {
+      "bedrock": {
+        "label": "Bedrock (ACP adapter)",
+        "command": "kirocrew-bedrock-acp",
+        "args": ["--region", "us-west-2"],
+        "install_hint": "pip install kirocrew-bedrock-acp",
+        "env": { "AWS_PROFILE": "default" },
+        "permission": {
+          "kind": "session_config",
+          "option_id": "approval_mode",
+          "value": "promptUnmatched"
+        },
+        "mcp": "array",
+        "credentials": { "posture": "adapter_chain", "reads": ["~/.aws"] },
+        "capabilities": { "model_option_id": "model", "report_usage": true }
+      }
+    }
+  }
+}
+```
+
+The id is then selectable exactly like a built-in value:
+`agent.acp_backend`, `agent.member_acp_backend` and
+`agents.<name>.acp_backend` all take it, the dashboard's backend panel lists
+it with its install state (the declared `command` is what is probed, and
+`install_hint` is the remedy shown when it is missing), and its backend card
+reports the posture the declaration states. An entry that fails validation
+is refused when the config is saved, with the id and the offending key
+named; a hand edit that lands an invalid entry is dropped at load with the
+same naming in the gateway log, and the backend is not registered.
+
+| Key | Meaning |
+|-----|---------|
+| `command` | The program to spawn: a bare name searched on `PATH`, or a path. Required. |
+| `args` | Arguments passed verbatim. There is no shell. |
+| `label` | The name the panel and session records show. Defaults to the id. |
+| `install_hint` | The command or text shown when `command` is not found. |
+| `protocol_version` | The ACP protocol version to open the handshake with. Default `1` — the spec dialect. An adapter that speaks kiro-cli's date-stamped dialect names it here. |
+| `env` | Environment bindings for the adapter process only. The same rules as `agent.env` apply — Kiro Crew's own names and names the agent environment scrub removes are refused — plus one: a credential-shaped name (`..._KEY`, `..._TOKEN`, `..._SECRET`, ...) is accepted only as a `secret://<vault name>` reference, never as plaintext. A reference is resolved from the vault at spawn; one the vault cannot answer fails the spawn closed, naming the variable. |
+| `permission.kind` | How the backend's asking is established. `session_config`: the client sets the named ACP config option (`option_id`, `value`) at session start and verifies the adapter advertises it. `seeded`: the `seed_env` bindings are written into the child's environment at spawn; with a `verify` block (`source: "config_option"`, `id`, and `value`) the client also reads the named option back off the session response and refuses the session when it does not carry the required value. `asks`: neither — the adapter's own asking is trusted, as declared. `session_config` and verified `seeded` sessions run under the sandbox credential mask, like every enforced backend; the other postures do not. |
+| `mcp` | `array` (default): the session's MCP servers are delivered on the `session/new` `mcpServers` array, translated once by the shared projection, with a server the spec narrows per tool withheld whole. `withheld`: no MCP servers are delivered. |
+| `credentials.posture` | `masked` (default): the sandbox mask hides the credential stores; `credentials.leaves` names this backend's own credential files (home-relative), which are fenced from the agent and spared for its own child, and `credentials.exposed_leaves` names masked files re-exposed read-only — a leaf that sits under nothing the mask hides is dropped, never honoured. `adapter_chain`: no mask; the adapter resolves its own provider's credential chain from the host (an AWS profile, an instance role), and `credentials.reads` declares what it reads, for the backend card and the audit trail — the declaration grants nothing. |
+| `credentials.sign_in_hint` | The sign-in remedy the panel shows for this backend. |
+| `capabilities.model_option_id` | The ACP config option that carries the model choice, when the adapter has one; model switching then goes through `session/set_config_option`. Empty means no model surface. |
+| `capabilities.effort_option_id` | The config option that carries effort, when the adapter has one. |
+| `capabilities.report_usage` | Whether the adapter returns per-prompt usage. |
+
+A custom backend's session persists under its own id, so its history is
+never mistaken for another harness's.
+
+#### Recipe: Amazon Bedrock through the ACP adapter
+
+`packages/kirocrew-bedrock-acp` in this repository is a standalone ACP
+adapter whose model is Amazon Bedrock's Converse API. Install it
+(`pip install kirocrew-bedrock-acp`, or from the package directory), then
+register it with the block above — that block is the whole integration; no
+Kiro Crew code names Bedrock. The adapter resolves the AWS credential chain
+in its own process (the registration's `AWS_PROFILE` binding selects the
+profile; `credential_process`, static keys and session tokens all work the
+way boto3 resolves them), and its `model` config option offers the
+account's catalogue: `ListFoundationModels` joined with
+`ListInferenceProfiles`, foundation-model ids and ACTIVE profile ids
+verbatim. Its tools are the session's MCP servers, connected by the
+adapter, and every tool call asks through Kiro Crew's approval flow first,
+because the registration's permission posture is the `approval_mode` option
+the adapter advertises. See the package's README for its flags
+(`--profile`, `--region`, `--model`, `--models`).
+
+#### Recipe: registering another ACP agent
+
+The same shape registers any other ACP agent: name the command that starts
+its ACP mode (for example a harness's `acp` subcommand), declare the
+permission posture that matches how it asks, and select the id. Where the
+agent seeds its posture from an environment variable its documentation
+names, use `permission.kind: "seeded"` with that variable in `seed_env`;
+where it advertises the posture as a session config option, use
+`session_config`. If neither is true, `asks` records that the agent's own
+asking is what the session relies on.
+
 ## Key Settings
 
 ```json
@@ -372,6 +460,7 @@ saved by hand to a harness not on that list still shows, marked unavailable.
 | Key | Description | Default |
 |-----|-------------|---------|
 | `agent.provider` | LLM provider backend. `"acp"` (KiroACP / kiro-cli) is the only accepted value | `"acp"` |
+| `agent.custom_backends` | Operator-registered external ACP agents: an object mapping a backend id to its declaration (spawn command and args, env bindings, permission posture, MCP delivery, credential posture, capability options). A registered id is selectable wherever a built-in backend id is. See [Custom backends](#custom-backends) | `{}` |
 | `agent.default_agent` | Default agent name for new sessions. Empty resolves from the agent config | `""` |
 | `agent.crew_mode_agent` | The agent template a chat runs when Ultra Mode is turned on: the team lead unless set. Empty falls back to the default. Takes effect live for new chats; no gateway restart | `"kirocrew-team-lead"` |
 | `agent.member_branch_prefix` | The start of the git branch the gateway cuts for a bot's new worktree of a repository, before `<bot>/<repo>`: `"alice/"` gives `alice/reviewer/myservice`, so each person's bots can follow a shared remote's naming rules. Each part between slashes may use only letters, digits, `.`, `_` and `-`, may not start or end with `.` or `-`, has no `..` and no `.lock` ending, and is at most 40 characters; an empty value uses `crew/`, and so does a rejected one, with a warning. The first part must not be the name of a branch the repository has, such as `main`: git cannot cut a branch under it, and the bot gets no worktree there. Takes effect live for the next new worktree; one that already exists keeps its branch, and one made again after its folder was deleted takes the current prefix (its old branch stays) | `"crew/"` |

@@ -41,10 +41,12 @@ from kiro_crew.acp_backends import (
     ACP_BACKEND_PI,
     ACP_BACKEND_STRANDS,
 )
+from kiro_crew.agent_sdk import custom_backends
 from kiro_crew.providers.mirrors.base import AgentConfigMirror
 from kiro_crew.providers.mirrors.claude_code import ClaudeCodeMirror
 from kiro_crew.providers.mirrors.codex import CodexMirror
 from kiro_crew.providers.mirrors.copilot import CopilotMirror
+from kiro_crew.providers.mirrors.custom import CustomMirror
 from kiro_crew.providers.mirrors.deepseek import DeepSeekMirror
 from kiro_crew.providers.mirrors.goose import GooseMirror
 from kiro_crew.providers.mirrors.opencode import OpenCodeMirror
@@ -415,19 +417,57 @@ PROJECTIONS: dict[str, McpProjection] = {
 }
 
 
+def _custom_projection(backend: str) -> McpProjection | None:
+    """The projection a custom backend's registration declares, or ``None``.
+
+    ``mcp: "array"`` is a mirror -- the generic one in this folder -- with the
+    whole-server deny every unmeasured adapter gets. ``mcp: "withheld"`` is
+    a no-channel: the operator closed the one channel (the ACP array) that
+    would carry Crew's servers, and the record names it and the anchor that
+    carries the registration's documentation, so the gap stays addressable
+    rather than reading as an oversight.
+    """
+    spec = custom_backends.spec_for(backend)
+    if spec is None:
+        return None
+    if spec.mcp == custom_backends.MCP_ARRAY:
+        return McpProjection(
+            kind=ProjectionKind.MIRROR,
+            reason=(
+                "the generic mirror (providers/mirrors/custom.py) projects the "
+                "spec onto this backend's session/new mcpServers array"
+            ),
+            per_tool_deny=PerToolDeny.WHOLE_SERVER,
+        )
+    return McpProjection(
+        kind=ProjectionKind.NO_CHANNEL,
+        reason=(
+            "the operator registered this backend with mcp 'withheld', so "
+            "Crew's MCP servers are not delivered to it"
+        ),
+        channel="the ACP session/new mcpServers array",
+        tracking="docs/system-specs/modules/custom-backends.md",
+    )
+
+
 def projection_for(backend: str) -> McpProjection:
     """*backend*'s declared MCP projection.
 
     Raises for a backend with no entry: an undeclared backend is the failure this
     module exists to catch, so it is loud rather than silently projection-less.
+    A custom backend's entry is its registration, answered by
+    :func:`_custom_projection`.
     """
     declared = PROJECTIONS.get(backend)
-    if declared is None:
-        raise KeyError(
-            f"backend {backend!r} has no agent-config mirror and no PROJECTIONS entry — "
-            "add one of the two; see providers/mirrors/README.md"
-        )
-    return declared
+    if declared is not None:
+        return declared
+    custom = _custom_projection(backend)
+    if custom is not None:
+        return custom
+    raise KeyError(
+        f"backend {backend!r} has no agent-config mirror and no PROJECTIONS entry — "
+        "add one of the two; see providers/mirrors/README.md"
+    )
 
 
 def has_mirror(backend: str) -> bool:
@@ -438,8 +478,15 @@ def has_mirror(backend: str) -> bool:
     different problems with different remedies, and so is "a projection that
     lives elsewhere". False rather than raising for an unknown backend, because
     the callers are diagnostics.
+
+    A custom backend registered with ``mcp: "array"`` has the generic mirror
+    in this folder, so it answers True; one registered ``"withheld"`` has
+    none, and answers False.
     """
-    return backend in MIRRORS
+    if backend in MIRRORS:
+        return True
+    spec = custom_backends.spec_for(backend)
+    return spec is not None and spec.mcp == custom_backends.MCP_ARRAY
 
 
 def mirror_for(backend: str) -> AgentConfigMirror | None:
@@ -453,5 +500,10 @@ def mirror_for(backend: str) -> AgentConfigMirror | None:
     cls = MIRRORS.get(backend)
     if cls is not None:
         return cls()
+    spec = custom_backends.spec_for(backend)
+    if spec is not None and spec.mcp == custom_backends.MCP_ARRAY:
+        # The generic mirror is constructed with the id: it is the one mirror
+        # whose backend is a registration rather than a constant.
+        return CustomMirror(backend)
     projection_for(backend)
     return None

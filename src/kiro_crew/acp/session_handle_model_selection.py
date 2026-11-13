@@ -58,6 +58,7 @@ from kiro_crew.acp.types import (
     effort_config_option_id,
     model_registry_namespace,
 )
+from kiro_crew.agent_sdk import custom_backends
 from kiro_crew.agent_sdk.backends import effort_config_option_levels
 from kiro_crew.agent_sdk.drivers.acp import EntitlementRevalidating
 from kiro_crew.agent_sdk.kas_model_catalog import record_catalog
@@ -375,7 +376,7 @@ async def set_model(self: AcpSessionHandle, model_id: str, *, inherit: bool = Fa
         # _bg session the current model IS session/new's served default.
         return
     backend = self._runtime.acp_backend
-    if backend in ACP_BACKENDS_MODEL_VIA_CONFIG_OPTION:
+    if backend in ACP_BACKENDS_MODEL_VIA_CONFIG_OPTION or _custom_model_via_config_option(backend):
         # A harness whose adapter judges the model VALUE rather than only the
         # option: the spelling Crew stored may not be the spelling this build
         # serves, so the candidate ladder decides. Non-strict, because this
@@ -463,6 +464,17 @@ async def set_model(self: AcpSessionHandle, model_id: str, *, inherit: bool = Fa
     self.last_prompt_stats.rebase_to_window(win or 0)
 
 
+def _custom_model_via_config_option(backend: str) -> bool:
+    """Whether a CUSTOM *backend*'s model is set through a session config option.
+
+    The dynamic form of ``ACP_BACKENDS_MODEL_VIA_CONFIG_OPTION`` membership,
+    twin of the ``AcpClient`` seam in ``client_model_selection``: naming a
+    model config option in the registration IS the membership claim.
+    """
+    spec = custom_backends.spec_for(backend)
+    return spec is not None and bool(spec.model_option_id)
+
+
 async def _push_model_config_option(self: AcpSessionHandle, model_id: str, *, strict: bool) -> str:
     """Push the model over ``session/set_config_option``, trying each spelling.
 
@@ -494,6 +506,12 @@ async def _push_model_config_option(self: AcpSessionHandle, model_id: str, *, st
     # Each push describes only itself; the split below sets it again.
     self.model_pin_partial = ""
     last_exc: AcpError | None = None
+    # The option's id is MODEL_CONFIG_ID for every shipped harness; a custom
+    # backend names its own in its registration, and the push addresses it.
+    _spec = custom_backends.spec_for(self._runtime.acp_backend)
+    option_id = (
+        _spec.model_option_id if _spec is not None and _spec.model_option_id else MODEL_CONFIG_ID
+    )
     # ONE home for the spelling ladder, imported rather than copied: the
     # order is a fact about how a model id is spelled on the wire, not about
     # which driver is asking, and two copies of an ORDER drift silently --
@@ -501,7 +519,7 @@ async def _push_model_config_option(self: AcpSessionHandle, model_id: str, *, st
     # which list ran.
     for cand in AcpClient._model_config_candidates(model_id):
         try:
-            await self.set_config_option(MODEL_CONFIG_ID, cand)
+            await self.set_config_option(option_id, cand)
         except AcpError as exc:
             lowered = str(exc).lower()
             if "unknown config option" in lowered:
@@ -509,7 +527,7 @@ async def _push_model_config_option(self: AcpSessionHandle, model_id: str, *, st
                     raise
                 logger.debug(
                     "adapter exposes no %r config option; skipping model push",
-                    MODEL_CONFIG_ID,
+                    option_id,
                 )
                 return ""
             if not _is_config_value_rejection(exc, MODEL_CONFIG_ID, self._runtime.acp_backend):

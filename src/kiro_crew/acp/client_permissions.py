@@ -61,6 +61,7 @@ from kiro_crew.acp.types import (
     JsonRpcMessage,
     rejection_reason_meta,
 )
+from kiro_crew.agent_sdk import custom_backends
 from kiro_crew.agent_sdk.backends import (
     ACP_BACKEND_FORBIDDEN_MODES,
     ACP_BACKENDS_CREW_ENFORCES_SPEC_TOOLS_SETTINGS,
@@ -260,6 +261,47 @@ def _verify_goose_routing(self: AcpClient, resp: dict) -> None:
         # so a bare gate exception would escape both of its handlers and skip
         # ``_cleanup_failed_live_spawn`` -- leaving the refusal untyped and the
         # failed spawn unreaped.
+        raise AcpToolGateUnroutable(str(exc)) from None
+
+
+def _verify_custom_routing(self: AcpClient, resp: dict) -> None:
+    """Read a custom backend's declared verify option back off the session response.
+
+    The generic form of the goose read-back beside it: the registration
+    declares which config option carries the seeded posture, and the value
+    that option reports on ``session/new`` / ``session/load`` is the value
+    the session will actually run under, so it is compared -- through
+    ``tool_gate.seeded_setting_issue``, the one decision both this refusal
+    and the doctor row read -- against the required one. An option the
+    response does not advertise is an issue, not a pass: the seed was
+    written, and nothing shows it landed.
+
+    Called on BOTH the new and the load path, like the goose read-back: a
+    restored session carries the posture it was left in, which the spawn
+    seed does not re-apply.
+
+    Raises ``AcpToolGateUnroutable`` when the required value is not in force.
+    """
+    spec = custom_backends.spec_for(self.backend)
+    if spec is None or not spec.permission_verify_id:
+        return
+    observed: object = None
+    options = resp.get("configOptions") if isinstance(resp, dict) else None
+    if isinstance(options, list):
+        for option in options:
+            if isinstance(option, dict) and option.get("id") == spec.permission_verify_id:
+                observed = option.get("currentValue")
+                break
+    issue = acp_tool_gate.seeded_setting_issue(self.backend, _scrub_observed(observed))
+    if not issue:
+        return
+    try:
+        acp_tool_gate.enforce_runtime_routing(
+            self.backend,
+            issue,
+            remedy=acp_tool_gate.remediation_for(self.backend),
+        )
+    except acp_tool_gate.ToolGateUnroutable as exc:
         raise AcpToolGateUnroutable(str(exc)) from None
 
 

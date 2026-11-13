@@ -49,6 +49,7 @@ from kiro_crew.acp.types import (
     effort_config_option_value,
 )
 from kiro_crew.agent import require_unchanged_derived_spec
+from kiro_crew.agent_sdk import custom_backends
 from kiro_crew.agent_sdk.backends import effort_config_option_levels, model_refusal_phrase
 from kiro_crew.platform.context import redact_log_via_context
 from kiro_crew.security import redact_credentials, redact_exfiltration_urls
@@ -95,6 +96,19 @@ def _is_config_value_rejection(exc: AcpError, config_id: str, backend: str = "")
         or getattr(exc, "code", None) == _JSONRPC_INVALID_PARAMS
         or (bool(phrase) and phrase.lower() in lowered)
     )
+
+
+def _custom_model_via_config_option(backend: str) -> bool:
+    """Whether a CUSTOM *backend*'s model is set through a session config option.
+
+    The dynamic form of ``ACP_BACKENDS_MODEL_VIA_CONFIG_OPTION`` membership
+    for an id no build ships: naming a model config option in its
+    registration IS the membership claim. The call sites read the frozen set
+    first and this second, so the membership channel stays the visible
+    mechanism and the registry only extends it to ids the set cannot hold.
+    """
+    spec = custom_backends.spec_for(backend)
+    return spec is not None and bool(spec.model_option_id)
 
 
 async def _push_model_via_effort_split(driver: Any, backend: str, model_id: str) -> str:
@@ -221,7 +235,9 @@ async def set_model(self: AcpClient, model_id: str) -> None:
     # An advisory belongs to the request that emitted it.  A clean explicit
     # switch must not inherit the served-model attribution from startup.
     self._last_substitution_model = None
-    if self.backend in ACP_BACKENDS_MODEL_VIA_CONFIG_OPTION:
+    if self.backend in ACP_BACKENDS_MODEL_VIA_CONFIG_OPTION or _custom_model_via_config_option(
+        self.backend
+    ):
         model_id = await self._push_model_config_option(model_id, strict=True)
     else:
         await self._send_request(
@@ -597,18 +613,22 @@ async def _push_model_config_option(self: AcpClient, model_id: str, *, strict: b
     # Each push describes only itself; the split below sets it again.
     self.model_pin_partial = ""
     last_exc: AcpError | None = None
+    # The option's id is 'model' for every shipped harness; a custom backend
+    # names its own in its registration, and the push must address that one.
+    _spec = custom_backends.spec_for(self.backend)
+    option_id = _spec.model_option_id if _spec is not None and _spec.model_option_id else "model"
     for cand in self._model_config_candidates(model_id):
         try:
-            await self.set_config_option("model", cand)
+            await self.set_config_option(option_id, cand)
         except AcpError as exc:
             msg = str(exc)
             lowered = msg.lower()
             if "unknown config option" in lowered:
-                # No 'model' config option at all (other adapter build):
+                # No model config option at all (other adapter build):
                 # retrying spellings cannot help.
                 if strict:
                     raise
-                logger.debug("adapter exposes no 'model' config option; skipping model push")
+                logger.debug("adapter exposes no %r config option; skipping model push", option_id)
                 return ""
             if not _is_config_value_rejection(exc, MODEL_CONFIG_ID, self.backend):
                 raise  # transport/protocol failure — not a value rejection
@@ -943,7 +963,9 @@ async def _apply_startup_model(self: AcpClient) -> None:
     # resumed — would otherwise be read below as this dispatch's own
     # served model and misattribute the session.
     self._last_substitution_model = None
-    if self.backend in ACP_BACKENDS_MODEL_VIA_CONFIG_OPTION:
+    if self.backend in ACP_BACKENDS_MODEL_VIA_CONFIG_OPTION or _custom_model_via_config_option(
+        self.backend
+    ):
         sent = await self._push_model_config_option(self._model, strict=False)
         if not sent:
             # Every spelling refused: record the session as running the

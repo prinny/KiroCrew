@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kirocrew-bedrock-acp"
+version = "0.1.0"
+description = "An ACP agent that drives Amazon Bedrock's Converse API, registered with Kiro Crew as a custom backend"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "boto3==1.43.108",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+kirocrew-bedrock-acp = "kirocrew_bedrock_acp.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

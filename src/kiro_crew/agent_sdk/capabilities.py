@@ -51,6 +51,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from kiro_crew.agent_sdk import custom_backends
 from kiro_crew.agent_sdk.backend_identity import is_claude_backend_name
 from kiro_crew.agent_sdk.backends import (
     ACP_BACKENDS_ACP_CLIENT_SPAWNABLE,
@@ -237,6 +238,31 @@ def capabilities_for(backend: str) -> SessionCapabilities:
     ``KiroCrewConfig.load()``, where reaching the platform context would re-enter
     the very load that called it.
     """
+    spec = custom_backends.spec_for(backend)
+    if spec is not None:
+        # A custom backend's capabilities are its DECLARATION, read at the same
+        # fail-closed standard as the frozen sets: what the operator did not
+        # declare is withheld, never inherited from a built-in's row. It is
+        # spawnable by construction (the generic launch serves it), and its
+        # model and effort surfaces exist exactly when it named the config
+        # option that carries them.
+        return SessionCapabilities(
+            backend=backend,
+            provider_seam=PROVIDER_ACP,
+            model_id_namespace=model_registry_namespace(backend),
+            resolves_model_from_advertised_list=bool(spec.model_option_id),
+            effort_via_config_option=bool(spec.effort_option_id),
+            effort_via_slash_command=False,
+            compacts_inline=False,
+            crew_fires_spec_hooks=False,
+            crew_fires_spec_observer_hooks=False,
+            supports_native_todos=False,
+            runs_own_slash_commands=False,
+            honors_zero_tool_ban=False,
+            acp_client_spawnable=True,
+            honors_remote_mcp_oauth=False,
+            native_workflows=False,
+        )
     return SessionCapabilities(
         backend=backend,
         provider_seam=(PROVIDER_CLAUDE_CODE if is_claude_backend_name(backend) else PROVIDER_ACP),

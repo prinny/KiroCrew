@@ -105,10 +105,14 @@ ENTITLEMENT_OWN_CREDENTIAL_FILE = "own_credential_file"
 #: declared source and not a flag any driver may set.
 ENTITLEMENT_HOST_VAULT = "host_vault"
 
-# Three sources, because three are constructed. A harness whose entitlement arrives
-# from the ambient cloud environment (an AWS profile, an instance role) rather than
-# from a file it owns or from Crew's vault would add a fourth here, with its label,
-# when it exists.
+#: Entitled by the ambient cloud environment the adapter process inherits --
+#: an AWS profile, an instance role, a credential chain the adapter resolves
+#: itself. Kiro Crew stores none of it and hands over none of it; the
+#: declaration exists so the card and the audit can say where the entitlement
+#: comes from. This is the fourth source the three below anticipated: it
+#: arrived with operator-registered custom backends, whose adapters resolve
+#: their own provider chains.
+ENTITLEMENT_AMBIENT_ENVIRONMENT = "ambient_environment"
 
 #: Entitlement source -> what to call it in front of an operator.
 #:
@@ -121,6 +125,7 @@ ENTITLEMENT_LABELS: Dict[str, str] = {
     ENTITLEMENT_HOST_IDENTITY_STORE: "kiro-cli's own sign-in",
     ENTITLEMENT_OWN_CREDENTIAL_FILE: "the harness's own credential file",
     ENTITLEMENT_HOST_VAULT: "a key in Kiro Crew's secret vault",
+    ENTITLEMENT_AMBIENT_ENVIRONMENT: "the ambient cloud environment (an AWS profile, an instance role)",
 }
 
 ENTITLEMENT_SOURCES: FrozenSet[str] = frozenset(
@@ -128,6 +133,7 @@ ENTITLEMENT_SOURCES: FrozenSet[str] = frozenset(
         ENTITLEMENT_HOST_IDENTITY_STORE,
         ENTITLEMENT_OWN_CREDENTIAL_FILE,
         ENTITLEMENT_HOST_VAULT,
+        ENTITLEMENT_AMBIENT_ENVIRONMENT,
     }
 )
 
@@ -867,14 +873,72 @@ _BY_BACKEND: Dict[str, AgentAuthDeclaration] = {
 # import that called it.
 
 
+def _custom_declaration(backend: str) -> Optional[AgentAuthDeclaration]:
+    """The declaration synthesised from a custom backend's registration.
+
+    A custom backend declares its credential posture in config, so its
+    declaration is built from that declaration rather than from a code row:
+    ``adapter_chain`` stores nothing of its own on Crew's floor (its adapter
+    resolves the ambient provider chain, so the entitlement source is the
+    ambient environment and no leaf is fenced or spared on its behalf), while
+    ``masked`` fences exactly the leaves it declared, and spares those same
+    leaves for its own child -- the subset rule ``__post_init__`` enforces is
+    satisfied by construction, because both fields carry the one list.
+    """
+    # Deferred: this module's module-scope imports are stdlib and the
+    # backends leaf alone (a parity pin), and the registry is only needed on
+    # the custom path.
+    from kiro_crew.agent_sdk import custom_backends
+
+    spec = custom_backends.spec_for(backend)
+    if spec is None:
+        return None
+    remedy = spec.sign_in_hint or (
+        f"Configure the {spec.label} backend's credentials on this host; "
+        "Kiro Crew does not manage its sign-in."
+    )
+    home_override = (
+        (spec.credentials_home_override_env,) if spec.credentials_home_override_env else ()
+    )
+    if spec.credentials_posture == custom_backends.POSTURE_ADAPTER_CHAIN:
+        return AgentAuthDeclaration(
+            backend=backend,
+            credential_leaves=(),
+            home_override_env_vars=home_override,
+            adapter_own_leaves=(),
+            sign_in_remedy=remedy,
+            signed_out_message=(
+                f"the {spec.label} adapter could not resolve its provider "
+                "credentials from this host's ambient environment"
+            ),
+            host_logout_retires_children=False,
+            entitlement_source=ENTITLEMENT_AMBIENT_ENVIRONMENT,
+        )
+    return AgentAuthDeclaration(
+        backend=backend,
+        credential_leaves=spec.credentials_leaves,
+        home_override_env_vars=home_override,
+        adapter_own_leaves=spec.credentials_leaves,
+        sign_in_remedy=remedy,
+        signed_out_message=f"the {spec.label} backend's credential file is missing or unreadable",
+        host_logout_retires_children=False,
+        entitlement_source=ENTITLEMENT_OWN_CREDENTIAL_FILE,
+    )
+
+
 def declaration_for(backend: str) -> AgentAuthDeclaration:
     """How *backend* signs in, fail-closed for an id this build cannot name.
 
     Total: never raises, so a control asking about an unrecognised harness gets
     :data:`UNKNOWN_AGENT_AUTH` -- which fences nothing extra and retires nothing
-    -- instead of an exception on a security path.
+    -- instead of an exception on a security path. An operator-registered
+    custom backend is not unrecognised: its declaration is synthesised from
+    its registration (:func:`_custom_declaration`).
     """
-    return _BY_BACKEND.get(backend, UNKNOWN_AGENT_AUTH)
+    declaration = _BY_BACKEND.get(backend)
+    if declaration is not None:
+        return declaration
+    return _custom_declaration(backend) or UNKNOWN_AGENT_AUTH
 
 
 def credential_leaves() -> Tuple[str, ...]:
@@ -1198,6 +1262,7 @@ __all__ = [
     "AGENT_AUTH_DECLARATIONS",
     "AgentAuthDeclaration",
     "AgentInteractiveLogin",
+    "ENTITLEMENT_AMBIENT_ENVIRONMENT",
     "ENTITLEMENT_HOST_IDENTITY_STORE",
     "ENTITLEMENT_HOST_VAULT",
     "ENTITLEMENT_LABELS",

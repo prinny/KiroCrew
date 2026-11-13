@@ -292,6 +292,33 @@ class AgentConfig:
             # AcpFailoverConfig.from_raw; a frozen literal here would drift.
         ),
     )
+    # Plain JSON data, like ``acp_failover`` above: the parsed, validated form
+    # lives in the ``agent_sdk.custom_backends`` registry, which the loader
+    # fills from this raw value on every load.
+    custom_backends: dict = field(
+        default_factory=dict,
+        metadata=_meta(
+            "Custom ACP backends",
+            "Operator-registered external ACP agents, as an object mapping a "
+            "backend id to its declaration: 'command' (the program to spawn), "
+            "'args', 'env' (NAME: value bindings; a credential-shaped name is "
+            "accepted only as a secret:// vault reference, and a name the "
+            "agent environment scrub removes is refused), 'permission' "
+            "('kind': 'session_config', 'seeded' or 'asks', with the option or "
+            "seed it needs), 'mcp' ('array' or 'withheld'), 'credentials' "
+            "('posture': 'masked' or 'adapter_chain', with its declared "
+            "leaves) and 'capabilities' (the config-option ids for model and "
+            "effort selection, and whether it reports usage). A registered id "
+            "is selectable exactly like a built-in backend id. An entry that "
+            "fails validation is refused at load with a warning naming the id "
+            "and the offending key, and is not registered. Absent means no "
+            "custom backends.",
+            # No enum, for the same reason ``acp_backend`` carries none: the
+            # ids are the operator's own, validated by the registry at load,
+            # and a frozen literal here would be stripped before the loader
+            # could judge it.
+        ),
+    )
     kas_bundle: bool = field(
         default=False,
         metadata=_meta(

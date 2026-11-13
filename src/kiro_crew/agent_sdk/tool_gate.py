@@ -61,7 +61,7 @@ from enum import Enum
 from pathlib import PurePosixPath
 
 from kiro_crew import platform_compat
-from kiro_crew.agent_sdk import host_auth
+from kiro_crew.agent_sdk import custom_backends, host_auth
 from kiro_crew.agent_sdk.backends import (
     ACP_BACKEND_CODEX,
     ACP_BACKEND_DEEPSEEK,
@@ -391,9 +391,13 @@ def adapter_hidden_credential_dirs(backend: str) -> tuple:
         if routing_for(backend) is Routing.VERIFIED_GATE_EXTENSION
         else set()
     )
-    excluded_leaves = tuple(
-        sorted(set(ADAPTER_OWN_CREDENTIAL_LEAVES.get(backend, ())) | host_runtime | gate_artifacts)
-    )
+    # The declaration is read beside the import-time table: for a built-in the
+    # two are the same fact (the table is built from the declarations), and
+    # for an operator-registered custom backend the synthesised declaration is
+    # the only place its own leaves were ever declared.
+    own_leaves = set(ADAPTER_OWN_CREDENTIAL_LEAVES.get(backend, ()))
+    own_leaves |= set(host_auth.declaration_for(backend).adapter_own_leaves)
+    excluded_leaves = tuple(sorted(own_leaves | host_runtime | gate_artifacts))
     return sandbox_credential_targets(excluded_leaves)
 
 
@@ -433,8 +437,15 @@ def adapter_expose_files(backend: str, hidden: tuple) -> tuple:
     # exposes a file silently.
     home = os.path.expanduser("~")
     exposed = []
+    # A custom backend's declared re-exposures join the table's here, and get
+    # no more trust than it does: the containment check below drops any leaf
+    # that sits under nothing this spawn's mask hides, so a declaration can
+    # only carve an exception out of the mask, never widen the floor.
+    spec = custom_backends.spec_for(backend)
+    custom_exposed = spec.credentials_exposed_leaves if spec is not None else ()
     for leaf in (
         *ADAPTER_EXPOSED_CREDENTIAL_LEAVES.get(backend, ()),
+        *custom_exposed,
         *ADAPTER_EXPOSED_HOST_TRUST_LEAVES,
     ):
         full = os.path.join(home, *PurePosixPath(leaf).parts)
@@ -541,7 +552,13 @@ def enforce_sandbox_floor(backend: str, mode: str) -> None:
 
 def label_for(backend: str) -> str:
     """An operator-facing name for *backend*, falling back to the raw id."""
-    return _LABELS.get(backend) or (backend or "Kiro CLI")
+    label = _LABELS.get(backend)
+    if label:
+        return label
+    spec = custom_backends.spec_for(backend)
+    if spec is not None:
+        return spec.label
+    return backend or "Kiro CLI"
 
 
 def routing_verdict(backend: str) -> tuple:
