@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
+from kiro_crew import keepalive_route as _keepalive_route
 from kiro_crew.agent_spec_format import iter_agent_spec_files
 from kiro_crew.aws_project_profiles import configured_project_profiles, resolve_project_profile
 from kiro_crew.messaging.queue_drain import entry_channel, wake_other_drains
@@ -239,6 +240,12 @@ class SessionRegistryState:
     speculative_starts: dict[str, tuple[asyncio.Event, StartPriority, bool, object]] = field(
         default_factory=dict
     )
+    #: Per key, the reservation token and the agent of a cold start that has fixed
+    #: its agent and not yet registered its session. Written only by that start
+    #: (``_get_or_create_impl``), under the key the caller gave it, and removed when
+    #: the session is registered and at every exit of the start, so no row outlives
+    #: the start that wrote it. Read by ``starting_agent``.
+    starting_agents: dict[str, tuple[object, str]] = field(default_factory=dict)
     #: Tokens of BACKGROUND resume prefetches a person's claim found short of
     #: their spawn door and started itself: each stands down at that door
     #: (``SpeculativeResumeRefused``). Removed with the announcement.
@@ -529,10 +536,16 @@ class SessionAllocationService:
         return self._deps.canonical_key(key)
 
     def advance_ownership_generation(self, key: str) -> int:
-        """Advance and return *key*'s monotonic ownership generation."""
+        """Advance and return *key*'s monotonic ownership generation.
+
+        Every publication and removal of *key* passes here, so this is also where
+        the registry ``/api/session-keepalive`` reads marks a provider it just
+        published (``kiro_crew.keepalive_route``).
+        """
         bucket = self._generation_key(key)
         generation = self._ownership_generations.get(bucket, 0) + 1
         self._ownership_generations[bucket] = generation
+        _keepalive_route.mark_published(self._owner, self._sessions.get(key))
         return generation
 
     def session_generation(self, key: str) -> int:
@@ -1479,6 +1492,26 @@ class SessionAllocationService:
     def get_agent(self, key: str) -> str:
         session = self._sessions.get(self._owner._fold_key(key))
         return session.agent if session else ""
+
+    def starting_agent(self, key: str) -> str:
+        """The agent a cold start in flight will register *key*'s session as, or ``""``.
+
+        The value ``get_agent`` answers once that start has registered, readable in
+        the window before it: the session's own MCP servers start, and ask for their
+        tool list, while the start is still waiting for them. Only a row whose start
+        still holds its reservation answers.
+        """
+        folded = self._owner._fold_key(key)
+        entry = self.state.starting_agents.get(folded)
+        if entry is None or entry[0] not in self._allocation_reservations.get(folded, ()):
+            return ""
+        return entry[1]
+
+    def forget_starting_agent(self, key: str, token: object) -> None:
+        """Remove *key*'s ``starting_agents`` row if the start holding *token* wrote it."""
+        entry = self.state.starting_agents.get(key)
+        if entry is not None and entry[0] is token:
+            del self.state.starting_agents[key]
 
     def get_agent_selection(self, key: str) -> tuple[str, str]:
         """Copy the live allocation's selection without reinterpreting its name."""

@@ -50,11 +50,13 @@ from kiro_crew.acp.types import (  # noqa: F401
     ACP_BACKEND_GOOSE,
     ACP_BACKEND_KAS,
     ACP_BACKEND_KIRO,
+    ACP_BACKEND_MIMOCODE,
     ACP_BACKEND_OPENCODE,
     ACP_BACKEND_PI,
     ACP_BACKEND_STRANDS,
     ACP_BACKENDS_ACP_RUNTIME,
     ACP_BACKENDS_COMPACT,
+    ACP_BACKENDS_COMPACTION_REPORTED,
     ACP_BACKENDS_CONTEXT_RECYCLE,
     ACP_BACKENDS_EFFORT_FROM_ADVERTISED_OPTION,
     ACP_BACKENDS_EFFORT_OVERLAY,
@@ -272,6 +274,8 @@ class AcpProvider(LLMProvider):
         self._child_fidelity_aware: bool = False
         # Same shape for the MCP elicitation opt-in (see accepts_elicitation).
         self._accepts_elicitation: bool = False
+        # And for the mark the keepalive route's registry sets (mark_keepalive_routed).
+        self._keepalive_routed: bool = False
         # Canonical Kiro Crew identity (a cfg.agents key), resolved by the
         # factory at provider-creation time — ``agent`` above is the bound kiro
         # template, a different namespace. Threaded into the kiro-shared
@@ -525,6 +529,16 @@ class AcpProvider(LLMProvider):
         return untested_version_issue(backend, self.agent_version)
 
     @property
+    def known_limitation_notice(self) -> str:
+        """The notice for a known problem this session's adapter release has and a
+        newer one fixes (``KNOWN_LIMITATIONS``), else ``""``. Read from the session's
+        ``session/new`` options, the ones its permission write reads."""
+        from kiro_crew.agent_sdk.backends import known_limitation_issue
+
+        backend = str(getattr(self._client, "backend", "") or "")
+        return known_limitation_issue(backend, getattr(self._client, "acp_config_options", None))
+
+    @property
     def agent_prompt_upgrade_notice(self) -> str:
         """The upgrade notice when the KAS this session runs drops its agent's prompt,
         else ``""``. Recorded when the session registered its ``customAgents``."""
@@ -560,6 +574,14 @@ class AcpProvider(LLMProvider):
         ``env`` or ``headers``, by key name only, else ``""``. Recorded when the
         session registered its ``customAgents``."""
         notice = getattr(self._client, "kas_withheld_credentials_notice", "")
+        return notice if isinstance(notice, str) else ""
+
+    @property
+    def zero_tool_ban_notice(self) -> str:
+        """The notice that this session's ``"tools": []`` is refused only at the permission
+        request, so calls the harness runs without asking still run, else ``""``.
+        Read from the session the runtime created or loaded."""
+        notice = getattr(self._client, "zero_tool_ban_notice", "")
         return notice if isinstance(notice, str) else ""
 
     @property
@@ -655,6 +677,11 @@ class AcpProvider(LLMProvider):
     def is_opencode_backend(self) -> bool:
         """True when this ACP provider talks to OpenCode (vs kiro-cli)."""
         return self._client.backend == ACP_BACKEND_OPENCODE
+
+    @property
+    def is_mimocode_backend(self) -> bool:
+        """True when this ACP provider talks to MiMo Code (vs kiro-cli)."""
+        return self._client.backend == ACP_BACKEND_MIMOCODE
 
     @property
     def is_pi_backend(self) -> bool:
@@ -1025,6 +1052,10 @@ class AcpProvider(LLMProvider):
         # the fallback keeps those guides reachable without a false capability.
         return self._client.backend == ACP_BACKEND_KAS
 
+    @property
+    def reports_compaction(self) -> bool:
+        return self._client.backend in ACP_BACKENDS_COMPACTION_REPORTED
+
     def prompt_timeout_for_deadline(self, deadline: float) -> float:
         """Resolve the immutable transport budget this ACP session supports."""
         return resolve_prompt_timeout_for_deadline(deadline)
@@ -1338,6 +1369,32 @@ class AcpProvider(LLMProvider):
         session on that process active, not just this one.
         """
         self._client.touch_activity()
+
+    def note_tool_heartbeat(
+        self, tool_call_id: str = "", *, activity_at: float | None = None
+    ) -> int:
+        """Hand a Kiro Crew tool's heartbeat to the live inner client.
+
+        This provider is what ``/api/session-keepalive`` finds in the registry, and
+        the per-call silence timer lives on the inner client's session handle
+        (``AcpSessionProvider.note_tool_heartbeat``). Returns how many calls it
+        stamped: none on a client with no such timer (the placeholder ``AcpClient``).
+        """
+        note = getattr(self._client, "note_tool_heartbeat", None)
+        return int(note(tool_call_id, activity_at=activity_at)) if callable(note) else 0
+
+    def mark_keepalive_routed(self) -> None:
+        """The registry ``/api/session-keepalive`` reads holds this provider.
+
+        Set by that registry (``kiro_crew.keepalive_route``). Stored here and
+        forwarded to the live inner client for the reason ``child_fidelity_aware``
+        is: the kiro backend's placeholder client is replaced at runtime startup,
+        and the stored mark is re-applied then.
+        """
+        self._keepalive_routed = True
+        mark = getattr(self._client, "mark_keepalive_routed", None)
+        if callable(mark):
+            mark()
 
     @property
     def session_id(self) -> str:

@@ -13,6 +13,7 @@ from kiro_crew.config.fields import _meta
 from kiro_crew.config.sections_defaults import (
     DEFAULT_AUTOCOMPACT_PCT,
     DEFAULT_HARNESS_BACKGROUND_HOLD_SECS,
+    DEFAULT_MAX_PER_CREATOR,
     DEFAULT_POOL_SIZE,
     DEFAULT_RECONCILE_MAX_KILLS,
     DEFAULT_SEARCH_SCAN_WINDOW,
@@ -244,7 +245,11 @@ class SessionConfig:
             "Recycle a session when its process tree resident memory exceeds "
             "this many MiB (default 4096). 0 disables; the internal background "
             "runtime recycles at 1536 MiB, or at this value when it is lower. Busy sessions (turn in "
-            "flight) are never recycled.",
+            "flight) are never recycled. A process above the limit when the watchdog "
+            "takes its size, at its second reading of it, is left running and recycled "
+            "only once it doubles: so with many MCP servers or a long first turn. Not so "
+            "for a process read under the limit more than about twelve minutes before, or for a "
+            "chat recycled in the last 24 hours.",
         ),
     )
     watchdog_end_leftovers_mid_turn: bool = field(
@@ -282,6 +287,18 @@ class SessionConfig:
             "home, since a runtime owned by another install has no record here and "
             "reads as unowned. 0 makes the arm observe-only: it still publishes the "
             "leak reading and audits each candidate it would have signalled.",
+        ),
+    )
+    max_per_creator: int = field(
+        default=DEFAULT_MAX_PER_CREATOR,
+        metadata=_meta(
+            "Sessions per Creator",
+            "How many live sessions one creator may hold: a Bot's own chat, a "
+            "conductor, or any session that opens other sessions (10-450). A "
+            "creator that holds this many cannot open another until it closes "
+            "one. The chats you open yourself do not count. All sessions together "
+            "still stop at 500. Read at each session create, so a change needs no "
+            "restart.",
         ),
     )
 

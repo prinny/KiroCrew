@@ -33,11 +33,19 @@ LESSON_ORIGIN_GATE_MODES = ("off", "shadow", "enforce")
 
 #: ``memory.lesson_tier_policy`` values; :mod:`kiro_crew.memory_tier_policy` says what each does.
 LESSON_TIER_POLICY_MODES = ("off", "shadow", "enforce")
+#: ``memory.lesson_fold`` values; :mod:`kiro_crew.memory_lesson_fold` says what each does.
+LESSON_FOLD_MODES = ("off", "shadow", "enforce")
+
 #: ``memory.rule_authority_order`` values; :mod:`kiro_crew.memory_rule_authority` says what each does.
 RULE_AUTHORITY_ORDER_MODES = ("off", "shadow", "enforce")
+#: ``memory.relevance_rule`` values; :mod:`kiro_crew.memory_relevance_rule` says what each does.
+RELEVANCE_RULE_MODES = ("off", "shadow", "enforce")
 
 #: ``memory.member_lesson_dedup`` values; :mod:`kiro_crew.memory_lesson_dedup` says what each does.
 MEMBER_LESSON_DEDUP_MODES = ("off", "shadow", "enforce")
+
+#: ``memory.dream`` values; :mod:`kiro_crew.memory_dream` says what each does.
+DREAM_MODES = ("off", "propose")
 
 #: ``memory.embedding_provider`` values. ``ollama_http`` selects the Ollama server
 #: backend in :mod:`kiro_crew.embeddings_ollama`.
@@ -445,6 +453,21 @@ class MemoryConfig:
             enum=list(LESSON_TIER_POLICY_MODES),
         ),
     )
+    lesson_fold: str = field(
+        default="off",
+        metadata=_meta(
+            "Lesson Fold",
+            "Whether the session-start rule block leaves out near-duplicate rules "
+            "(same scope and tier, and the same text or stored vectors at cosine "
+            "0.95 or more). 'off' (default) keeps today's block. 'shadow' keeps "
+            "today's block and only records, in the injection receipt and within "
+            "fixed size caps, which rule ids would fold into which. 'enforce' keeps "
+            "the first copy of each rule (yours first, then newest) and says how many "
+            "were folded; learn_list still shows all. Rules you taught are never "
+            "folded and no stored lesson is changed.",
+            enum=list(LESSON_FOLD_MODES),
+        ),
+    )
     rule_authority_order: str = field(
         default="off",
         metadata=_meta(
@@ -473,6 +496,35 @@ class MemoryConfig:
             "turn has been given it; turning the flag off restores those rows. "
             "Lessons you taught are never folded.",
             enum=list(MEMBER_LESSON_DEDUP_MODES),
+        ),
+    )
+    relevance_rule: str = field(
+        default="off",
+        metadata=_meta(
+            "Relevance Rule",
+            "Which word matches let past findings, task facts and the activity "
+            "block (projects, history) into a new session. 'off' (default) keeps "
+            "today's blocks. 'shadow' keeps today's blocks and only records, in "
+            "the injection receipt and within fixed size caps, which rows the new "
+            "rule would add or drop. 'enforce' counts only words of 3 or more "
+            "letters or digits and two-character pairs of Chinese or Japanese "
+            "text, and admits a task fact only with the evidence the private "
+            "store already asks for. The rule block is unchanged and no stored "
+            "row is changed.",
+            enum=list(RELEVANCE_RULE_MODES),
+        ),
+    )
+    dream: str = field(
+        default="off",
+        metadata=_meta(
+            "Dreaming",
+            "Whether an offline pass looks over stored lessons and facts for "
+            "copies, near-copies, work status and old untagged rules while no chat "
+            "turn is running. 'off' (default) schedules and reads nothing. 'propose' "
+            "runs at most once a day per store, 200 rows and 10 minutes at a time, "
+            "and writes an approval list (kirocrew memory dream list); nothing in "
+            "it is applied, and lessons you taught are never proposed for change.",
+            enum=list(DREAM_MODES),
         ),
     )
     inject_memory: bool = field(
@@ -579,6 +631,13 @@ def lesson_tier_policy_mode_from(raw: object) -> str:
     return str(field_default(MemoryConfig, "lesson_tier_policy"))
 
 
+def lesson_fold_mode_from(raw: object) -> str:
+    """A stored ``memory.lesson_fold``, or the field default for anything unknown."""
+    if isinstance(raw, str) and raw in LESSON_FOLD_MODES:
+        return raw
+    return str(field_default(MemoryConfig, "lesson_fold"))
+
+
 def rule_authority_order_mode_from(raw: object) -> str:
     """A stored ``memory.rule_authority_order``, or the field default for anything unknown."""
     if isinstance(raw, str) and raw in RULE_AUTHORITY_ORDER_MODES:
@@ -591,6 +650,20 @@ def member_lesson_dedup_mode_from(raw: object) -> str:
     if isinstance(raw, str) and raw in MEMBER_LESSON_DEDUP_MODES:
         return raw
     return str(field_default(MemoryConfig, "member_lesson_dedup"))
+
+
+def relevance_rule_mode_from(raw: object) -> str:
+    """A stored ``memory.relevance_rule``, or the field default for anything unknown."""
+    if isinstance(raw, str) and raw in RELEVANCE_RULE_MODES:
+        return raw
+    return str(field_default(MemoryConfig, "relevance_rule"))
+
+
+def dream_mode_from(raw: object) -> str:
+    """A stored ``memory.dream``, or the field default for anything unknown."""
+    if isinstance(raw, str) and raw in DREAM_MODES:
+        return raw
+    return str(field_default(MemoryConfig, "dream"))
 
 
 def lesson_extraction_enabled(memory: object) -> bool:

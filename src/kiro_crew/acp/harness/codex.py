@@ -78,7 +78,9 @@ ACP v1 ``mode`` selector is the enforceable boundary, written over
 ``ACP_BACKEND_ROUTING``, which both drivers read for themselves. This harness
 declares no routing member: a second copy of that table would be free to disagree
 with the one that decides. There is no settings file to author first either, which
-is why this harness has no ordering constraint the claude one has. ``read-only``
+is why this harness has no ordering constraint the claude one has. Crew writes
+``external-sandbox`` when the adapter offers it (Crew's OS wrap, Codex's
+``untrusted`` approvals, no second OS sandbox) and ``read-only`` otherwise. Either
 still permits passive READS; ACP v1 has no way to require a prompt for those, and
 what makes the residual gap survivable is that mask.
 
@@ -163,6 +165,7 @@ from kiro_crew.acp.types import (
     METHOD_SESSION_CLOSE,
     METHOD_SESSION_UPDATE,
 )
+from kiro_crew.agent_sdk.codex_transcripts import delete_codex_session_files
 from kiro_crew.providers.mirrors.codex import drop_unadvertised_transports
 from kiro_crew.sandbox import detect_backend, wrap_argv, wrap_argv_async
 
@@ -711,9 +714,17 @@ class CodexHarness(MembershipHarness):
         # under the new name until the runtime recycles, and one that switches
         # between command and url under the same name conflicts with the
         # placeholder until then. Project-level .codex/config.toml overrides
-        # are not covered. A session/new that carries mcpServers replaces the
-        # whole mcp_servers table in codex-acp's createSessionConfig, dropping
-        # this override for any session that mounts servers that way.
+        # are not covered. This override is lost in a session/new or
+        # session/load that carries mcpServers. codex-acp's createSessionConfig
+        # sets the mcp_servers key of the config overrides that it sends to
+        # codex to those servers alone, and codex loads the config.toml
+        # servers beneath the overrides, so that session starts the
+        # config.toml servers too. A
+        # foreground session, a Bot's worker included, gets no override at all,
+        # so codex starts the config.toml servers beside the servers Crew
+        # mounts. A mounted server takes the place of a config.toml server with
+        # the same name (DISABLE_MCP_CONFIG_FILTERING below). codex-acp 2.3.0
+        # has no per-session channel that would narrow them.
         self._bg_codex_config = ""
         if is_background:
             _codex_home = Path(ctx.environ.get(_CODEX_HOME_ENV) or str(ctx.home / ".codex"))
@@ -822,6 +833,10 @@ class CodexHarness(MembershipHarness):
         # config. That keeps an unbound global dashboard server in place of the
         # gateway's verified mount, on both session/new and session/load.
         env["DISABLE_MCP_CONFIG_FILTERING"] = "true"
+        # Opt the adapter into its host-sandbox mode. resolve_spawn_masks refuses
+        # every unwrapped tier, so this child always runs inside Crew's wrap. An
+        # adapter that does not know the flag ignores it and keeps read-only.
+        env["CODEX_ACP_EXTERNAL_SANDBOX"] = "true"
         # Inject CODEX_CONFIG to disable the per-session MCP fleet for background
         # sessions.  apply_spawn_env runs after agent.env is merged (launch.py:1014),
         # so checking env.get here correctly sees operator/agent.env values and will
@@ -987,7 +1002,11 @@ class CodexHarness(MembershipHarness):
         Evict, not delete: the thread record survives under ``CODEX_HOME``, and
         ``session/load`` on the closed id replays the conversation, also from a
         restarted adapter. ``ACP_BACKENDS_SESSION_SHARING`` membership rests on
-        this. ``session/delete`` would ARCHIVE the thread and make later loads fail.
+        this. ``session/delete`` would ARCHIVE the thread and make later loads fail,
+        and the archive still keeps the rollout on disk under ``archived_sessions/``.
+        So Crew deletes a disposable session's rollout files itself, after the
+        teardown: ``delete_disposable_record`` names ``agent_sdk.codex_transcripts``,
+        which reads ``CODEX_HOME`` from the runtime's ``extra_env`` over the gateway's.
 
         Must be a REQUEST (``notification=False``): sent as a notification the
         adapter ignores it silently and every session leaks. Bounded by
@@ -995,7 +1014,11 @@ class CodexHarness(MembershipHarness):
         ``test_codex_session_mcp.py::test_real_codex_acp_session_close_evicts``
         repeats the measurement against each installed adapter.
         """
-        return TeardownPolicy(method=METHOD_SESSION_CLOSE, notification=False)
+        return TeardownPolicy(
+            method=METHOD_SESSION_CLOSE,
+            notification=False,
+            delete_disposable_record=delete_codex_session_files,
+        )
 
     # ── Seam 9: recycle ──
 

@@ -663,7 +663,6 @@ async def _on_complete(turn: _ChatTurn, event) -> Literal[_Flow.BREAK] | None:
     _turn_t0 = turn._turn_t0
     _wt_pending_coding = turn._wt_pending_coding
     _wt_pending_dropped = turn._wt_pending_dropped
-    agent_model = turn.agent_model
     client = turn.client
     monitor_completion = turn.monitor_completion
     session_key = turn.session_key
@@ -1027,21 +1026,13 @@ async def _on_complete(turn: _ChatTurn, event) -> Literal[_Flow.BREAK] | None:
         # slot.model may still be empty here even though the
         # provider learned the model mid-turn. Read it back
         # before persisting so tokens.jsonl is never tagged
-        # with a blank model for CC sessions.
-        #
-        # The `_active_fallback_model` clause guards the slot.model
-        # WRITE, not the row's value: the provider reports the
-        # FALLBACK, and writing it into slot.model would make the
-        # temporary swap a permanent pin (same guard as the pre-turn
-        # site). Kept as its own condition rather than folded into the
-        # `_record_model` check above, so the write's safety does not
-        # depend on whether the live provider happened to report a
-        # served model.
+        # with a blank model for CC sessions. Only the row is
+        # refined: a slot with no pick of its own, Bot pin or not,
+        # is never written (the pre-turn site's rule), so it keeps
+        # following its Bot's model and the default.
         #
         # _record_model / _provider_name are already resolved above
-        # the gate; this only refines the model, and only here
-        # because the slot.model WRITE must not run for a turn that
-        # billed nothing.
+        # the gate; this only refines the model.
         if (
             not _record_model
             and not slot._active_fallback_model
@@ -1050,11 +1041,6 @@ async def _on_complete(turn: _ChatTurn, event) -> Literal[_Flow.BREAK] | None:
         ):
             _canonical = _backfill_canonical_model(client, _provider_name)
             if _canonical:
-                # Same rule as the pre-turn backfill: a slot that
-                # inherits (no crew pin either) is recorded but
-                # never pinned.
-                if agent_model:
-                    slot.model = _canonical
                 _record_model = _canonical
         await asyncio.shield(
             persist_token_record_async(
@@ -1311,6 +1297,7 @@ async def _persist_abnormal_turn_usage(
     stop_reason: str,
     since: object = _NO_PRIOR_STATS,
     usage: TurnUsage | None = None,
+    delivered: bool | None = None,
 ) -> bool:
     """Write the usage row for a turn ending without ``EVENT_COMPLETE``.
 
@@ -1353,6 +1340,9 @@ async def _persist_abnormal_turn_usage(
     ``usage`` is the turn's billing when the caller already read it (the Stop
     footer shares the one read, because ``provider_last_turn_usage`` consumes
     the accumulated total); ``None`` reads it here.
+
+    ``delivered`` is whether the turn streamed any reply text, as on the
+    complete path's row; ``None`` leaves the field off.
     """
     try:
         if usage is None:
@@ -1375,6 +1365,7 @@ async def _persist_abnormal_turn_usage(
             transcript=slot_history_key(slot),
             elapsed_ms=elapsed_ms,
             model_source=client,
+            delivered=delivered,
             # Abnormal-turn histogram sampling is out of this change's scope
             # (the usage ROW is the deliverable); opt the row's persist out of
             # the metric so it does not file a sample under slot.key, which for a

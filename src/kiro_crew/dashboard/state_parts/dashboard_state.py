@@ -39,6 +39,7 @@ from kiro_crew.dashboard.state_parts.dashboard_services import (
 from kiro_crew.dashboard.state_parts.notification_log import _load_notifications
 from kiro_crew.dashboard.state_parts.session_events import _record_crew_log_class
 from kiro_crew.dashboard.state_parts.slots_frame import _SLOTS_BROADCAST_INTERVAL_S
+from kiro_crew.keepalive_route import serve_keepalive_route
 from kiro_crew.knowledge.store import KnowledgeStore
 from kiro_crew.loop_lock import LoopBoundLock
 from kiro_crew.messaging import turn_ceiling
@@ -141,6 +142,8 @@ class DashboardState:
     _slots_push_overlapped: bool = False
 
     restoring_open_slots: bool = False
+    # Open-tab keys the startup restore owes and has not built; empty otherwise.
+    restoring_open_slot_keys: frozenset[str] = frozenset()
 
     # False until the startup open-tab restore has run once. The periodic flush
     # loop is armed BEFORE that restore, so a flush firing in the gap sees a
@@ -301,6 +304,9 @@ class DashboardState:
         owner_id: str = "",
     ):
         self.sessions = sessions
+        # ``/api/session-keepalive`` looks a session up in this registry, so the
+        # providers it publishes are the ones a Kiro Crew tool's heartbeat reaches.
+        serve_keepalive_route(sessions)
         # The decisions seam's LLM lane needs ONE callable that runs a prompt on a
         # tool-less background session, and ``decisions/`` deliberately imports
         # nothing above itself -- so the wiring happens here, where the session
@@ -535,6 +541,10 @@ class DashboardState:
         # being restored from with a half-populated slot set — see
         # _persist_open_slots.
         self.restoring_open_slots = False
+        # Set once the startup restore has read its snapshot and published the tabs it
+        # owes (``restoring_open_slot_keys``), or ended without one; see
+        # ``session_still_loading``.
+        self.owed_slot_keys_known = asyncio.Event()
         # Cleared until the open-tab restore has run once this boot; see the
         # class-level default and _persist_open_slots.
         self.open_slots_restored = False
@@ -1248,6 +1258,7 @@ class DashboardState:
     native_subagent_snapshots = _slot_directory.native_subagent_snapshots
     has_slot = _slot_directory.has_slot
     slot_exists = _slot_directory.slot_exists
+    session_still_loading = _slot_directory.session_still_loading
     get_linked_slot = _slot_directory.get_linked_slot
     resolve_slot = _slot_directory.resolve_slot
     link_slack = _slot_directory.link_slack

@@ -564,6 +564,21 @@ produce the counts that sign-off waits for. Its rules:
   `learn_add` counts only when the person sent the chat's latest turn. That count over the
   would-be demotions is the R3 pass metric.
 
+R4's rules, as built (`memory_lesson_fold.py`; R4 is not signed):
+
+- **Where.** The rule block of the session-start render and its post-compaction
+  copy, on the default and private stores. Explicit recall and the JSONL stores
+  never fold.
+- **Identity.** `same_item` (P3), the same function R5 uses. Rows are visited by
+  P2 level, then newest first; each is compared only with kept leaders. An L1
+  row is always a leader. A row with a NOT-clause its leader lacks stays a
+  leader, so no clause leaves the prompt.
+- **Modes.** `shadow` renders today's block and records `(leader, folded)` id
+  pairs in the receipt field `lesson_fold`. `enforce` drops folded rows before
+  the 37,000 budget is fitted and prints the fold line; the omission line counts
+  only rows that did not fit.
+- **Fixture.** The golden test embedder gives each topic-less row its own vector.
+
 R1 comes next because it fixes S2 on existing stores without rewriting a row.
 R4 needs one test fix first: the golden fixture that gives every topic-less
 row the same vector must give distinct vectors, or it folds everything.
@@ -593,6 +608,28 @@ not signed):
   off, the sweep changes nothing.
 - **Q1 data.** Under `shadow` or `enforce` the default store counts its cosine
   merges and how many fall below 0.95. Its merge rule does not change.
+
+R6's rules, as built (`memory_dream.py`, `propose` only; R6 is not signed):
+
+- **Nothing applies.** The pass writes the store's `memory_meta` only: an
+  approval list (`memory_dream:proposals`, ids, kind, gate result, and the merged
+  sentence of an uncertain-band pair), run receipts and day counters under the
+  P6 caps. No row of `semantic_memory`, no revision and no record metadata
+  changes. So 7.7's `propose_conflict` review items, the Memory page filter, the
+  notification and 7.8's wake check wait for the stage that applies; until then
+  the owner reads the list with `kirocrew memory dream list`.
+- **Trigger and scope** follow 7.3 and 7.4. A person's turn is any turn the
+  gateway's restart census counts (a turn on any channel's session, a dashboard
+  slot task or a channel session task) or a queued message; a background or
+  worker turn also counts, which only makes runs rarer. One
+  `(updated_at, key)` watermark serves both the backlog and later runs. The
+  daily automatic run is counted per store.
+- **Candidates** follow 7.5 except transcript evidence (7.5.1), left to a later
+  pull request. Work state is found by key words for the classes kind routing
+  tags `state`, and numbered families compare `project.*` keys with every digit
+  run replaced.
+- **Gate** follows 7.6 for row-to-row proposals; the content-word check uses the
+  P4 tokens.
 
 ## 7. Advanced: Dreaming (Maintain)
 

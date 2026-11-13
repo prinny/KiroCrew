@@ -23,6 +23,7 @@ from contextlib import aclosing
 from pathlib import Path
 from typing import Any, cast
 
+from kiro_crew.acp import session_provider_keepalive as _sp_keepalive
 from kiro_crew.acp import session_provider_mcp_reinject as _sp_mcp_reinject
 from kiro_crew.acp import session_provider_shared as _sp_shared
 from kiro_crew.acp import stale_compaction
@@ -52,6 +53,7 @@ from kiro_crew.acp.types import (
     ACP_BACKEND_KAS,
     ACP_BACKEND_KIRO,
     ACP_BACKENDS_COMPACT,
+    ACP_BACKENDS_COMPACTION_REPORTED,
     ACP_BACKENDS_CONTEXT_RECYCLE,
 )
 from kiro_crew.acp.types import (
@@ -82,6 +84,7 @@ from kiro_crew.runtime_ownership import (
     release_runtime_tenancy,
 )
 from kiro_crew.session_token_sig import schedule_session_token_publish
+from kiro_crew.tracing import turn_anomalies
 from kiro_crew.tracing import turns as trace_turns
 from kiro_crew.trust_patterns import GrantDeadline
 
@@ -473,7 +476,10 @@ class AcpSessionProvider(LLMProvider):
         # The fresh conversation is the same worker's, so its record waits as long as
         # the previous one's did.
         new_handle.delete_delay_secs = getattr(old, "delete_delay_secs", 0.0)
+        # Still the session the keepalive route's registry holds, if it was.
+        new_handle.keepalive_routed = getattr(old, "keepalive_routed", False) is True
         self._handle = new_handle
+        old.mcp_session_report().hand_over(new_handle.mcp_session_report())  # its reader follows
         # The fresh session/new restored nothing: a session/load observation from
         # the old handle would make the next turn skip its history replay
         # (``turn_dispatch_gates``) and run on an empty conversation. Same as
@@ -573,6 +579,13 @@ class AcpSessionProvider(LLMProvider):
     def kas_withheld_credentials_notice(self) -> str:
         """See ``AcpSessionHandle.kas_withheld_credentials_notice``."""
         value = getattr(self._handle, "kas_withheld_credentials_notice", "")
+        return value if isinstance(value, str) else ""
+
+    @property
+    def zero_tool_ban_notice(self) -> str:
+        """See ``AcpSessionHandle.zero_tool_ban_notice``."""
+        read = getattr(self._handle, "zero_tool_ban_notice", None)
+        value = read() if callable(read) else ""
         return value if isinstance(value, str) else ""
 
     @property
@@ -812,6 +825,10 @@ class AcpSessionProvider(LLMProvider):
 
         return self.backend == ACP_BACKEND_KAS
 
+    @property
+    def reports_compaction(self) -> bool:
+        return self.backend in ACP_BACKENDS_COMPACTION_REPORTED
+
     def prompt_timeout_for_deadline(self, deadline: float) -> float:
         """Resolve the immutable transport budget this ACP session supports."""
         return resolve_prompt_timeout_for_deadline(deadline)
@@ -910,9 +927,14 @@ class AcpSessionProvider(LLMProvider):
         emitted = False
         try:
             async with aclosing(
-                trace_turns.traced(
+                turn_anomalies.watched(
                     self,
-                    self.essential_delivery.stream(message, send, lambda: self.context_incarnation),
+                    trace_turns.traced(
+                        self,
+                        self.essential_delivery.stream(
+                            message, send, lambda: self.context_incarnation
+                        ),
+                    ),
                 )
             ) as events:
                 async for event in events:
@@ -1368,22 +1390,11 @@ class AcpSessionProvider(LLMProvider):
         proc = getattr(self._runtime, "_process", None)
         return proc.returncode if proc else None
 
-    def touch_activity(self) -> None:
-        """Refresh activity timestamp on the runtime, and stamp this session's handle.
-
-        The runtime half is PROCESS-level: the clock belongs to the runtime, so
-        one session's activity refreshes it for every session on it. An idle
-        co-tenant is therefore never idle while a neighbour talks, which is the
-        SAFE direction for anything that reaps on idleness (it defers, never
-        signals early) and the wrong one for anything that reports idle time
-        as a fact about a session.
-
-        The handle half is per-session: the tool-stall watchdog ignores the
-        runtime clock, so without it a blocking tool's keepalive pings
-        (``wait``, ``spawn_sub_agents``) would not keep its own turn alive.
-        """
-        self._runtime._last_activity = time.monotonic()
-        self._handle.note_keepalive()
+    # What the keepalive route stamps on this session, its touch and a tool's
+    # heartbeat: ``kiro_crew.acp.session_provider_keepalive``.
+    touch_activity = _sp_keepalive.touch_activity
+    note_tool_heartbeat = _sp_keepalive.note_tool_heartbeat
+    mark_keepalive_routed = _sp_keepalive.mark_keepalive_routed
 
     def rekey(
         self,

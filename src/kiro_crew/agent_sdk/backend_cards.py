@@ -509,10 +509,23 @@ OFF_CARD_SETS: Mapping[str, str] = {
         "choosing a harness loses nothing; a wrong membership runs every hook twice "
         "or not at all, which is a defect"
     ),
+    "ACP_BACKENDS_CREW_LOADS_SPEC_STEERING": (
+        "who loads the default agent's steering files: the harness, or Crew's prompt "
+        "text on a harness that is handed no spec. Where neither does, the chat's "
+        "steering list marks each file harness_has_no_path and a custom agent's own "
+        "entries get a session-start notice, so the loss is told where it applies; a "
+        "wrong membership sends every document twice or not at all, which is a defect"
+    ),
+    "ACP_BACKENDS_NATIVE_PROJECT_AGENTS_MD": (
+        "who reads the project's AGENTS.md on a harness Crew loads steering for: the "
+        "harness from its working directory, or Crew's load. The file arrives either "
+        "way, so a reader choosing a harness loses nothing; a wrong membership sends "
+        "it twice or not at all, which is a defect"
+    ),
     "ACP_BACKENDS_CREW_FIRES_SPEC_OBSERVER_HOOKS": (
         "who runs the agent spec's hooks that cannot refuse a tool call: the harness, "
-        "or Crew's turn loop. They run either way. What a reader loses on claude, the "
-        "spec's preToolUse hooks, is already on the card as the one setting there that "
+        "or Crew's turn loop. They run either way. What a reader loses on claude and "
+        "codex, the spec's preToolUse hooks, is already on the card as a setting that "
         "has no effect (backend_mcp_ability.HOOKS_PRE_TOOL_USE_CARD_ID), so a line here "
         "would repeat it; a wrong membership runs a hook twice or not at all, which is "
         "a defect"
@@ -592,6 +605,18 @@ OFF_CARD_SETS: Mapping[str, str] = {
     "ACP_BACKENDS_UNMARKED_COMPACTION_PAIR": (
         "which frame shape the compaction parser reads; the compaction itself is "
         "the manual_compact line"
+    ),
+    "ACP_BACKENDS_SENT_IMAGE_RECORD": (
+        "whether a picture a later prompt names again is re-sent or left as its path "
+        "with a note. The model has the picture either way; outside the set each turn "
+        "carries one more copy, and a wrong membership is a defect -- a picture a "
+        "silent compaction dropped would be withheld"
+    ),
+    "ACP_BACKENDS_COMPACTION_REPORTED": (
+        "whether the engine is sent the reply-format rules once per conversation and "
+        "again after a compaction, or with every message. The model has the rules "
+        "either way; outside the set each message carries one more copy, and a wrong "
+        "membership is a defect -- rules a silent compaction dropped would not return"
     ),
     "ACP_BACKENDS_HARNESS_MANAGED_COMPACTION": (
         "what answers a full context on a harness Crew cannot hand /compact to. The "
@@ -708,6 +733,14 @@ OFF_CARD_SETS: Mapping[str, str] = {
         "vetoed read or an unrouted delete, which is a defect, not a feature the "
         "reader would choose a harness by"
     ),
+    "ACP_BACKENDS_TOOL_SILENCE_TIMER": (
+        "whether each non-shell tool call gets its own silence timer, which needs a "
+        "harness whose tool frames name the MCP server of every MCP-served call. Both "
+        "states recover a call the harness lost, the timer within minutes and the "
+        "liveness windows later, and neither cuts a call that reports progress; a wrong "
+        "membership cuts a quiet MCP call at the built-in bound or recovers a lost call "
+        "late, which is a defect, not a feature the reader would choose a harness by"
+    ),
     "ACP_BACKENDS_MODEL_EFFORT_PAIR_IDS": (
         "whether an advertised <model>[<effort>] id is applied as two writes. The "
         "model switch either lands or is refused, which its own line already says"
@@ -717,6 +750,11 @@ OFF_CARD_SETS: Mapping[str, str] = {
         "while that file's grants exceed the ceiling, because the host reads them. "
         "Both states hold the governance ceiling, so it is no feature a reader "
         "would choose a harness for"
+    ),
+    "ACP_BACKENDS_MODEL_SELECT_UNCHECKED": (
+        "who checks a model value against the advertised select, the harness or "
+        "the client. Either way an unadvertised value is refused rather than "
+        "applied, so the model-switch line reads the same"
     ),
     "ACP_BACKENDS_USER_LEVEL_AGENT_SPECS_ONLY": (
         "which directory a host resolves its agent specs from, and therefore "
@@ -761,6 +799,13 @@ OFF_CARD_SETS: Mapping[str, str] = {
         "answers a narrower question the pool asks about, and a wrong membership "
         "admits a backend whose native tools stay live under a spec that meant to "
         "deny them, which is a defect"
+    ),
+    "ACP_BACKENDS_UNASKED_NATIVE_TOOLS": (
+        "whether some of the harness's own tools run with no permission request "
+        "under the asking posture Crew seeds. An input to the zero-tool-ban rule "
+        "above and nothing else; the reader-facing half, how and whether this "
+        "harness is made to ask, is the `tool_approval` line, so a card line here "
+        "would say the same thing twice"
     ),
     "ACP_BACKENDS_MCP_CONFIG_HOT_RELOAD": (
         "whether a freshly installed MCP server reaches a RUNNING session. The one "

@@ -12,6 +12,7 @@ import InfoTip from '../../components/InfoTip'
 import ErrorNotice from '../../components/ErrorNotice'
 import AgentSpecNotRewrittenNotice from '../../components/AgentSpecNotRewrittenNotice'
 import McpShareRefusedNotice from './McpShareRefusedNotice'
+import McpUnreadableFilesNotice from './McpUnreadableFilesNotice'
 import { clearStagedChanges, stagedChangesSnapshot, useStagedChangesMemory } from '../../hooks/useMcpStagedChangesMemory'
 import { useProvider } from '../../providers'
 import McpBrowserModal from '../../components/McpBrowserModal'
@@ -573,7 +574,7 @@ export default function McpTab({ onManagedProviderClick }: McpTabProps = {}) {
     []
   )
 
-  const { data: servers = [], isLoading, isSuccess: serversLoaded, refetch } = useQuery<McpServer[]>({
+  const { data: servers = [], isLoading, isSuccess: serversLoaded, refetch, dataUpdatedAt: serversReadAt } = useQuery<McpServer[]>({
     queryKey: ['mcp-servers'],
     queryFn: fetchServers,
   })
@@ -647,6 +648,8 @@ export default function McpTab({ onManagedProviderClick }: McpTabProps = {}) {
   // the Customize → Connections panel's provider.
   const setMcpStagedEdits = useSetMcpStagedEdits()
   useEffect(() => { setMcpStagedEdits(pendingCount > 0) }, [pendingCount, setMcpStagedEdits])
+  // Gone with the list: its staged edits are gone too.
+  useEffect(() => () => setMcpStagedEdits(false), [setMcpStagedEdits])
 
   // Toggle a tool override.  If the new value matches the server's current
   // on-disk state (i.e. this is a revert), drop the override.  If all
@@ -842,6 +845,7 @@ export default function McpTab({ onManagedProviderClick }: McpTabProps = {}) {
       {/* Staged changes live only in this tab: with any pending, the notice keeps
           its chat hand-off off and opens MCP Management in a new tab. */}
       <McpShareRefusedNotice className="mb-3" stagedChanges={pendingCount > 0} />
+      <McpUnreadableFilesNotice className="mb-3" stagedChanges={pendingCount > 0} listReadAt={serversReadAt} />
 
       {/* Pending-changes banner */}
       {pendingCount > 0 && (
@@ -1178,11 +1182,7 @@ export default function McpTab({ onManagedProviderClick }: McpTabProps = {}) {
                       {i18nT('pages.overview.mcpTab.agent_dropped_not_found', { command: s.agentDropped.command })}
                       <span className="block mt-0.5">
                         {i18nT('pages.overview.mcpTab.agent_dropped_fix', {
-                          page: [
-                            i18nT('nav.agent_capabilities'),
-                            i18nT('pages.capabilitiesPage.connections_label'),
-                            i18nT('pages.connectionsPage.mcp_servers'),
-                          ].join(' → '),
+                          page: i18nT('nav.mcp_servers'),
                         })}
                       </span>
                     </div>

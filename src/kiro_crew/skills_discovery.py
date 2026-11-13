@@ -529,7 +529,14 @@ def project_skill_tree_present(project_dir: str | Path | None) -> bool:
         return False
     if not skill_trust.project_skills_enabled() or not skill_trust.is_project_trusted(project_dir):
         return False
-    fd = _open_project_dir_chain(Path(project_dir) / ".kiro" / "skills")
+    # Open the tree under the canonical key the trust check matched, as the
+    # catalog does: the no-follow chain refuses every link component, so the
+    # raw spelling would refuse a trusted project whose path runs through a
+    # symlinked ancestor (a home directory that is itself a link, say).
+    key = skill_trust.canonical_key(project_dir)
+    if key is None:
+        return False
+    fd = _open_project_dir_chain(Path(key) / ".kiro" / "skills")
     if fd is None:
         return False
     os.close(fd)
@@ -805,7 +812,11 @@ def _screen_extra_paths(cfg: KiroCrewConfig) -> list[Path]:
     # under a credential home, and a reloaded config is an untrusted document,
     # so the string itself never reaches the log.
     for index, p in enumerate(cfg.skills.extra_paths):
-        resolved = Path(p).expanduser().resolve()
+        try:
+            resolved = Path(p).expanduser().resolve()
+        except (OSError, RuntimeError, ValueError):
+            logger.warning("skills.extra_paths[%d] cannot be resolved; skipped on reload", index)
+            continue
         if is_sensitive_path(str(resolved)):
             logger.warning("Skipping sensitive skills.extra_paths[%d] on reload", index)
         elif resolved.is_dir():

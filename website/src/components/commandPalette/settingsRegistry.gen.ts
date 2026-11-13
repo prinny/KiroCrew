@@ -707,6 +707,20 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     }
   },
   {
+    "id": "channels.let-code-channels-start-helper-agents-slack",
+    "label": "Let code channels start helper agents (Slack)",
+    "labelKey": "pages.settings.slackPanel.slackCode.code_channel_dispatch",
+    "labelSuffix": "Slack",
+    "description": "Helpers work in the code channel's folder and ask you before changing files, unless that channel is set to approve automatically (Trust).",
+    "tab": "channels",
+    "type": "toggle",
+    "occurrence": 1,
+    "params": {
+      "channel": "slack"
+    },
+    "configKey": "slack.code_channel_dispatch"
+  },
+  {
     "id": "channels.messages-database-path-imessage",
     "label": "Messages database path (iMessage)",
     "labelKey": "pages.settings.iMessagePanel.db_path",
@@ -1598,6 +1612,18 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     }
   },
   {
+    "id": "chat.reasoning-starts-expanded",
+    "label": "Reasoning starts expanded",
+    "labelKey": "pages.settings.chatPanel.reasoning_starts_expanded",
+    "hint": "Open reasoning rows with their text showing, instead of collapsed. Rows you open or close by hand keep your choice.",
+    "tab": "chat",
+    "type": "toggle",
+    "occurrence": 1,
+    "params": {
+      "sub": "transcript"
+    }
+  },
+  {
     "id": "chat.recall-sent-messages-with-arrow-keys",
     "label": "Recall Sent Messages with Arrow Keys",
     "labelKey": "pages.settings.chatPanel.arrow_key_prompt_history",
@@ -1706,6 +1732,20 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "params": {
       "sub": "sessions"
     }
+  },
+  {
+    "id": "chat.sessions-per-creator",
+    "label": "Sessions per creator",
+    "labelKey": "pages.settings.chatPanel.sessions_per_creator",
+    "description": "The most sessions one Bot or agent can keep open at once. 10 to 450. Default 50.",
+    "hint": "A creator is a Bot, or any chat whose agent opens other sessions. A creator at this limit cannot open another session until it closes one. Chats you open yourself do not count. All sessions together still stop at 500. Applies from the next new session.",
+    "tab": "chat",
+    "type": "input",
+    "occurrence": 1,
+    "params": {
+      "sub": "sessions"
+    },
+    "configKey": "session.max_per_creator"
   },
   {
     "id": "chat.show-context-percentage",
@@ -2081,30 +2121,6 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "occurrence": 1
   },
   {
-    "id": "connections.client-id",
-    "label": "Client ID",
-    "labelKey": "pages.settings.connectionsPanel.client_id",
-    "tab": "connections",
-    "type": "input",
-    "occurrence": 1
-  },
-  {
-    "id": "connections.client-secret",
-    "label": "Client secret",
-    "labelKey": "pages.settings.connectionsPanel.client_secret",
-    "tab": "connections",
-    "type": "input",
-    "occurrence": 1
-  },
-  {
-    "id": "connections.client-secret-2",
-    "label": "Client secret",
-    "labelKey": "pages.settings.connectionsPanel.client_secret",
-    "tab": "connections",
-    "type": "input",
-    "occurrence": 2
-  },
-  {
     "id": "connections.oauth-client-github",
     "labelKey": "pages.settings.connectionsPanel.oauth_app",
     "labelSuffix": "GitHub",
@@ -2127,70 +2143,15 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "description": "Client ID, client secret and redirect URI for a provider that needs a registered OAuth app"
   },
   {
-    "id": "connections.oauth-client-gmail",
+    "id": "connections.oauth-client-google",
     "labelKey": "pages.settings.connectionsPanel.oauth_app",
-    "labelSuffix": "Gmail",
+    "labelSuffix": "Google",
     "tab": "connections",
     "type": "input",
     "occurrence": 1,
-    "settingId": "connections-oauth-client-gmail",
+    "settingId": "connections-oauth-client-google",
     "label": "OAuth app",
-    "description": "Client ID, client secret and redirect URI for a provider that needs a registered OAuth app"
-  },
-  {
-    "id": "connections.oauth-client-google-drive",
-    "labelKey": "pages.settings.connectionsPanel.oauth_app",
-    "labelSuffix": "Google Drive",
-    "tab": "connections",
-    "type": "input",
-    "occurrence": 1,
-    "settingId": "connections-oauth-client-google-drive",
-    "label": "OAuth app",
-    "description": "Client ID, client secret and redirect URI for a provider that needs a registered OAuth app"
-  },
-  {
-    "id": "connections.oauth-client-google-calendar",
-    "labelKey": "pages.settings.connectionsPanel.oauth_app",
-    "labelSuffix": "Google Calendar",
-    "tab": "connections",
-    "type": "input",
-    "occurrence": 1,
-    "settingId": "connections-oauth-client-google-calendar",
-    "label": "OAuth app",
-    "description": "Client ID, client secret and redirect URI for a provider that needs a registered OAuth app"
-  },
-  {
-    "id": "connections.oauth-client-google-sheets",
-    "labelKey": "pages.settings.connectionsPanel.oauth_app",
-    "labelSuffix": "Google Sheets",
-    "tab": "connections",
-    "type": "input",
-    "occurrence": 1,
-    "settingId": "connections-oauth-client-google-sheets",
-    "label": "OAuth app",
-    "description": "Client ID, client secret and redirect URI for a provider that needs a registered OAuth app"
-  },
-  {
-    "id": "connections.oauth-client-google-docs",
-    "labelKey": "pages.settings.connectionsPanel.oauth_app",
-    "labelSuffix": "Google Docs",
-    "tab": "connections",
-    "type": "input",
-    "occurrence": 1,
-    "settingId": "connections-oauth-client-google-docs",
-    "label": "OAuth app",
-    "description": "Client ID, client secret and redirect URI for a provider that needs a registered OAuth app"
-  },
-  {
-    "id": "connections.oauth-client-google-slides",
-    "labelKey": "pages.settings.connectionsPanel.oauth_app",
-    "labelSuffix": "Google Slides",
-    "tab": "connections",
-    "type": "input",
-    "occurrence": 1,
-    "settingId": "connections-oauth-client-google-slides",
-    "label": "OAuth app",
-    "description": "Client ID, client secret and redirect URI for a provider that needs a registered OAuth app"
+    "description": "One Google OAuth client for Gmail, Drive, Calendar, Sheets, Docs and Slides"
   },
   {
     "id": "developer.agent-harness-for-worker-chats",
@@ -2371,19 +2332,6 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     }
   },
   {
-    "id": "developer.github-sign-in-by-kiro-crew",
-    "label": "GitHub sign-in by Kiro Crew",
-    "labelKey": "pages.developer.featurePreviewsTab.crew_oauth",
-    "description": "Lets Kiro Agent chats use your GitHub profile, orgs and public repos. Turn it on, then connect GitHub in Customize > Connections.",
-    "hint": "Kiro Crew signs in to GitHub itself. Disconnect GitHub on Connections to remove access.",
-    "tab": "developer",
-    "type": "toggle",
-    "occurrence": 1,
-    "params": {
-      "sub": "feature-previews"
-    }
-  },
-  {
     "id": "developer.jev-api-key",
     "label": "Jev API key",
     "labelKey": "pages.developer.featurePreviewsTab.decisions_api_key_label",
@@ -2401,6 +2349,19 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "labelKey": "pages.developer.featurePreviewsTab.dashboard_stale_fields",
     "description": "Marks bot-written Dashboard fields that are out of date.",
     "hint": "When a bot has not rewritten a field it writes on its Dashboard page for a day (or the field's own limit), the page marks that field with how long ago it was updated, and the bot is reminded to write it again in its next turn and check-in.",
+    "tab": "developer",
+    "type": "toggle",
+    "occurrence": 1,
+    "params": {
+      "sub": "feature-previews"
+    }
+  },
+  {
+    "id": "developer.mcp-sign-in-by-kiro-crew",
+    "label": "MCP sign-in by Kiro Crew",
+    "labelKey": "pages.developer.featurePreviewsTab.crew_oauth",
+    "description": "Lets chats use MCP servers that Kiro Crew signs in to, such as GitHub, Asana, Google and servers you add. Turn it on, then connect them in Settings > Connections.",
+    "hint": "Kiro Crew signs in to MCP servers itself and passes the sign-in to chats on a harness it supports, such as Kiro Agent, Claude or Codex. kiro-cli chats sign in as before. Disconnect a server on Connections to remove access.",
     "tab": "developer",
     "type": "toggle",
     "occurrence": 1,
@@ -2464,6 +2425,18 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "label": "Run KAS on Kiro Crew's own engine",
     "labelKey": "pages.developer.kasBundleCard.toggle_label",
     "description": "Uses the KAS engine version this Kiro Crew release was tested with, instead of the Kiro CLI. Applies to every new session on this Kiro Crew, not just this device. Signs in with your Kiro account from Settings → Agent Harness. Takes effect when Kiro Crew restarts.",
+    "tab": "developer",
+    "type": "toggle",
+    "occurrence": 1,
+    "params": {
+      "sub": "feature-previews"
+    }
+  },
+  {
+    "id": "developer.secrets-vault-redesign",
+    "label": "Secrets vault redesign",
+    "labelKey": "pages.developer.featurePreviewsTab.secrets_vault",
+    "description": "Shows Secrets as a list beside the open item, and lets you save logins and notes.",
     "tab": "developer",
     "type": "toggle",
     "occurrence": 1,

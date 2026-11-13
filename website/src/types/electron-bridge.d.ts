@@ -67,6 +67,9 @@ declare global {
     onNavigate: (cb: (path: string) => void) => () => void
     /** View > Toggle Focus Mode. Optional: absent on a shell older than the menu item. */
     onToggleFocusMode?: (cb: () => void) => () => void
+    /** The OS session locked (macOS and Windows only). Optional: absent in a
+     *  browser and on an older shell. */
+    onSessionLocked?: (cb: () => void) => () => void
     /** A macOS swipe the shell relays as one route-history step (-1 Back,
      *  1 Forward). Optional: absent in a browser and on an older shell. */
     onHistoryStep?: (cb: (delta: unknown) => void) => () => void
@@ -294,6 +297,11 @@ declare global {
      *  local bundled gateway's policy provider was accepted via the three-gate
      *  assertLocalDashboard check. False for remote (SSH-tunneled) gateways. */
     policyGoverned?: boolean
+    /** `'edition'`: the install's EXTERNALLY-MANAGED marker says the edition's
+     *  own update widget is the update surface, so the core opens neither its
+     *  "update available" popup nor its "update ready" dialog for this lane.
+     *  Absent on every other install. */
+    updatePrompts?: 'edition'
   }
 
   interface UpdateInfo {
@@ -313,6 +321,8 @@ declare global {
     disabled?: string
     managedBy?: string
     updateCommand?: string
+    /** Same as `UpdateState.updatePrompts`. */
+    updatePrompts?: 'edition'
     laneVersion?: string
     runningAheadOfLane?: boolean | null
     /** The main process's confirmed policy governance verdict — true only when

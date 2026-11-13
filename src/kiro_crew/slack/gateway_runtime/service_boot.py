@@ -49,6 +49,7 @@ if TYPE_CHECKING:
         MemoryStore,
         RealSlackClient,
         SessionManager,
+        SessionMap,
         SkillsLoader,
         Task,
         TaskRunner,
@@ -146,7 +147,10 @@ async def _init_services(self: GatewayOrchestrator) -> None:
     CONSTRUCTION deliberately stays on the loop thread:
     ``SessionManager.__init__`` creates asyncio primitives (locks,
     semaphores, queues), so hopping the whole method into a worker thread
-    would trade a blocking bug for a thread-affinity one. (Other sync
+    would trade a blocking bug for a thread-affinity one. The session map,
+    which holds no asyncio primitives, is the exception: it is built in a
+    worker thread so its startup read can retry a Windows sharing violation.
+    (Other sync
     filesystem steps — e.g. agent-config install — remain on the loop;
     they are bounded small-file work, not usage-scaled. The builtin-skills
     sync verifies user-owned trees before replacing them, so it runs as a
@@ -346,7 +350,18 @@ async def _init_services(self: GatewayOrchestrator) -> None:
     self.conv_log.init()
     self.ctx_builder.conversation_log = self.conv_log
 
-    self.sessions = SessionManager(self._cfg, provider_factory=factory)  # type: ignore[arg-type]
+    # The map's startup read runs in a worker thread, the one place
+    # ``read_bytes_with_retry`` rides out a Windows sharing violation; built on
+    # the loop, one contended read would refuse every session-map write.
+    session_map = await asyncio.to_thread(SessionMap)
+    self.sessions = SessionManager(  # type: ignore[arg-type]
+        self._cfg, provider_factory=factory, session_map=session_map
+    )
+    # A turn's build names the MCP servers its session cannot use yet, and
+    # records on the session that the turn is told.
+    from kiro_crew.agent_sdk.mcp_problems import TurnMcpStatesReader
+
+    self.ctx_builder.mcp_states_for_session = TurnMcpStatesReader(self.sessions)
 
     self.consolidator = HistoryConsolidator(
         log=self.conv_log,
@@ -490,9 +505,19 @@ def _schedule_session_start_sizing(self: GatewayOrchestrator) -> None:
     """Run :meth:`_log_session_start_sizing` as a tracked background task.
 
     Called after the dashboard/API socket binds, so the host probe never
-    delays READY (AUTOSDE ``no-new-work-on-gateway-boot-path``).
+    delays READY (AUTOSDE ``no-new-work-on-gateway-boot-path``). The same task
+    then re-reads the host on a slow interval and widens the ``auto`` gates, so
+    a gateway that boots while memory is short does not keep that moment's
+    widths for its whole life (``start_gate_widening``).
     """
-    task = asyncio.create_task(self._log_session_start_sizing())
+
+    async def _size_then_widen() -> None:
+        from kiro_crew.start_gate_widening import widen_start_gates_as_memory_frees
+
+        await self._log_session_start_sizing()
+        await widen_start_gates_as_memory_frees(self._cfg.agent, getattr(self, "sessions", None))
+
+    task = asyncio.create_task(_size_then_widen())
     self._background_tasks.add(task)
     task.add_done_callback(self._background_tasks.discard)
 
@@ -667,6 +692,15 @@ def _init_task_runner(self: GatewayOrchestrator) -> None:
     # mypy checks this owner before the facade's bindings, so this function runs in a
     # deferred pass, where the nested def above drops the narrowing from the assignment.
     self.task_runner._on_approval = _task_approval  # type: ignore[union-attr]
+
+    # An app turn (``AgentTurnSDK.run``: a meeting's agents) passes this prompt as
+    # its approver, as a cron job does. Without it a call the hook gate neither
+    # denies nor grants is approved with nobody asked.
+    from kiro_crew.apps import agent_turn_sdk
+
+    agent_turn_sdk.set_turn_approver(
+        lambda app: self._interactive_approval("app", requester=f"app {app}")
+    )
 
 
 async def _init_dashboard(self: GatewayOrchestrator) -> None:

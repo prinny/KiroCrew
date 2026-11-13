@@ -633,10 +633,23 @@ logs a console warning and stops switching back, showing no chat, until it gets 
 <ChatPanel slotKey="coder-abc123" conversationOnly />
 ```
 
+Set `expandSteps` when the user watches a long run and the agent's work should be readable
+without a click per row. The panel's transcript then reads as if the user had turned on **Show
+Thinking Inline**, **Tool calls start expanded** and **Reasoning starts expanded** in Settings:
+working steps show inline, and reasoning and tool-call rows open expanded. It applies to this
+panel only and never changes the user's saved settings; a row the user opens or closes by hand
+keeps that choice. As with those settings, a finished turn still gathers its tool calls behind
+its steps toggle. An older host ignores the prop and keeps its rows collapsed.
+
+```tsx
+<ChatPanel slotKey="coder-abc123" conversationOnly expandSteps />
+```
+
 | Prop | Type | Required | Purpose |
 |---|---|---|---|
 | `slotKey` | `string` | yes | Select the Kiro Crew session rendered by the panel |
 | `conversationOnly` | `boolean` | no | Hide ChatPage's sessions rail and disable ChatPage URL synchronization |
+| `expandSteps` | `boolean` | no | Show the transcript's reasoning and tool steps expanded in this panel, without changing the user's settings |
 
 ## Pull Request Panel
 
@@ -689,8 +702,11 @@ composer and source strip, which an app page does not have.
 ## Issue Search
 
 `POST /api/source/issues` lists or searches the issues of one GitHub repository
-(`owner/repo`) or GitLab project (`group/sub/project`), through the gateway's own
-`gh`/`glab` sign-in. It answers the owner's dashboard session only: an app token is
+(`owner/repo`), GitLab project (`group/sub/project`), Jira project (`PROJ`) or Linear
+team (`ENG`), through the gateway's own `gh`/`glab` sign-in, the Jira API token in
+`dashboard.jira_auth` (the one the Issues panel reads Jira with), or a Linear personal
+API key stored in Settings > Secrets as `LINEAR_API_KEY` (without one, the answer is a
+503 `provider_error` that says to add it). It answers the owner's dashboard session only: an app token is
 refused (403) whatever its manifest declares, as for `/api/source/pull-request`. On an
 app page, `useAppApi()` allows the path only when the manifest declares
 `/api/source/issues` in `permissions.api`. The grant is separate from
@@ -703,16 +719,71 @@ The request and response types are `IssueSearchRequest` and `IssueSearchResponse
 
 | Field | Meaning |
 |---|---|
-| `provider`, `scope` | Required. `github` or `gitlab`; `jira` and `linear` answer 400 `provider_not_supported` |
-| `host` | A GitHub Enterprise or self-managed GitLab host on the gateway's allowlist (`dashboard.github_hosts`, `dashboard.gitlab_hosts`); defaults to github.com / gitlab.com |
-| `state`, `assignee`, `author`, `labels`, `text` | Structured filters; `assignee: 'me'` is the signed-in user |
-| `raw` | GitHub search qualifiers or a GitLab filter string (`labels=bug&milestone=v1`). Replaces the structured filters; it cannot name another repo, org, user or owner, use `OR`/`AND`/`NOT` or parentheses, or set GitLab paging, ordering or `scope` |
+| `provider`, `scope` | Required. `github`, `gitlab`, `jira` or `linear` |
+| `host` | A GitHub Enterprise or self-managed GitLab host on the gateway's allowlist (`dashboard.github_hosts`, `dashboard.gitlab_hosts`); defaults to github.com / gitlab.com. Required for Jira: a `*.atlassian.net` site or a `dashboard.jira_hosts` entry, with credentials in `dashboard.jira_auth` (a Jira served under a context path such as `/jira` is not searchable yet). Omitted for Linear |
+| `state`, `assignee`, `author`, `labels`, `text` | Structured filters; `assignee: 'me'` is the signed-in user. A Jira `assignee`/`author` is an account ID on Cloud and a username on Server/Data Center. A Linear person is `me`, an email address or a display name |
+| `raw` | GitHub search qualifiers, a GitLab filter string (`labels=bug&milestone=v1`), Jira JQL or a Linear `IssueFilter` JSON object (`{"priority":{"eq":1}}`). Replaces the structured filters. GitHub's cannot name another repo, org, user or owner, or use `OR`/`AND`/`NOT` or parentheses; GitLab's cannot set paging, ordering or `scope`; JQL is ANDed, in parentheses, with `project = <scope>`, so its parentheses must balance, and it cannot use `ORDER BY`. A Linear filter may use `or`/`and`, and is ANDed under the team, so nothing in it can reach another team |
 | `sort`, `order`, `limit`, `cursor`, `refresh` | `updated`/`created`, `desc`/`asc`, 1 to 100 (25), the previous page's `nextCursor`, and a cache bypass (results are kept 30 seconds) |
 
 Each `IssueSummary` carries a url built from the validated scope, a display `key`,
-labels, people, counts, a plain-text `excerpt` and `linkedChanges` (`[]` from both list
-APIs). GitHub pull requests never appear. `total` is `null` when the provider does not
-report one; GitHub search stops at its 1,000-result window.
+labels, people, counts, a plain-text `excerpt` and `linkedChanges` (`[]` from every list
+API). GitHub pull requests never appear. `total` is `null` when the provider does not
+report one (Jira Cloud and Linear never do); GitHub search and Linear stop at a
+1,000-result window. Jira fills `priority` and reports `commentCount` as 0, because its
+search API returns no count, and a Linear `commentCount` is `0` because its list API
+reports none.
+
+## Issue List
+
+`useIssues`, `IssueList` and `IssueCard` show the issues [Issue Search](#issue-search)
+returns, through one query (`IssueSearchRequest`) and one result shape
+(`IssueSummary`). The views draw all four providers the route serves (GitHub, GitLab,
+Jira and Linear) from that shape. They need
+`APP_SDK_LEVEL >= 6` and `/api/source/issues` in your manifest's `permissions.api`.
+Without the declaration, or outside an app, the components render a refusal naming
+the path and send nothing; the hook reports an `AppApiPermissionError`. Declaring
+`/api/source/issue` (one issue) does not cover the list. A built-in page keeps the
+dashboard's client. [issues-guide.md](issues-guide.md) walks through a first list.
+
+```tsx
+import * as sdk from '@kirocrew/app-sdk'
+
+sdk.APP_SDK_LEVEL >= 6 && sdk.IssueList
+  ? <sdk.IssueList query={{ provider: 'github', scope: 'acme/widgets', state: 'open' }} view="expanded" showFilters />
+  : <a href="https://github.com/acme/widgets/issues">Open the issues on GitHub</a>
+```
+
+The query is the request body [Issue Search](#issue-search) describes.
+
+`useIssues(query, { enabled? })` pages through the response's `nextCursor`. The query
+minus its cursor is the cache key, so a changed query starts again from the first
+page.
+
+| Returns | Type | Purpose |
+|---|---|---|
+| `issues` | `IssueSummary[]` | Every page loaded so far |
+| `isLoading` | `boolean` | The first page is loading |
+| `error` | `Error \| null` | The last failure, or the refusal |
+| `hasNextPage`, `fetchNextPage` | `boolean`, `() => void` | Paging |
+| `isFetchingNextPage` | `boolean` | A next page is loading |
+| `refetch` | `() => void` | Read every loaded page again |
+
+| `IssueList` prop | Type | Required | Purpose |
+|---|---|---|---|
+| `query` | `IssueSearchRequest` | yes | What to list; a new query replaces the filter bar's edits |
+| `view` | `'condensed' \| 'expanded'` | no | One row per issue (default) or one card |
+| `showFilters` | `boolean` | no | State, assignee (`me` included), labels and search text; hidden while `query.raw` is set, since a raw query replaces those filters |
+| `onSelect` | `(issue: IssueSummary) => void` | no | Makes each row a button; without it a row links out |
+| `emptyText` | `string` | no | Replaces the empty-state text |
+
+`IssueCard` takes `issue`, `view` and `onSelect` and renders one issue on its own.
+The condensed row shows the provider mark, the key (`#4821`, `CREW-142`), the title,
+up to two labels (hidden when narrow), the provider's `statusLabel` and the updated
+time. The expanded card adds the project, a three-line excerpt, priority, every
+label, the first assignee, the author, the comment count (left out for Jira and Linear, whose searches return none) and linked-change count, and an
+**Open in &lt;provider&gt;** link. Every provider string is rendered as text, links
+open only `http(s)` urls in a new tab with `rel="noopener noreferrer"`, and an avatar
+loads only from an `http(s)` url.
 
 ## Chat Marker Protocol
 
@@ -902,7 +973,7 @@ A failed approval decision, a refused tool-output copy and a failed MCP sign-in 
 `ErrorNotice` with the "Ask the agent" hand-off, which navigates to the main chat. A host holding unsaved local state that the
 navigation would drop passes `handOff={false}` to `ChatMessageList`: those notices then render
 without the button, and renderers see `ctx.handOff === false`. The failed sign-in banner then
-names where to sign in again (Customize → Connections → MCP Servers) as plain text, not a link,
+names where to sign in again (MCP Servers) as plain text, not a link,
 so it still offers a next step without navigating away. `ChatEmbed` does this because its
 composer draft lives only in the embed; `ChatPane` does too, for its staged message quote. `ToolCallPill` takes the same switch as `askAgent`.
 Default is `true`, so a host with nothing to lose keeps the hand-off.
@@ -940,7 +1011,11 @@ their siblings are response-shape names rather than importable types.
 When `app_name` is set and no explicit auth is provided, the Python client uses
 the app secret the Gateway gave its backend at spawn (`KIROCREW_PROXY_SECRET`, when
 `KIROCREW_APP_NAME` names the same app). Only with a Gateway older than that does it
-fall back to `~/.kiro/crew/apps/{name}/.app_secret`. For a remote Gateway,
+fall back to `~/.kiro/crew/apps/{name}/.app_secret`. Code that runs in the Gateway
+process, an app's `backend.hooks`, has no secret: pass `base_url=ctx.gateway_origin()`,
+`token=await ctx.app_token()` and `on_auth_expired=ctx.app_token`, and build no client
+when `ctx.gateway_origin()` returns `""` (see
+[App token](#app-token-ctxapp_token)). For a remote Gateway,
 call `await client.authenticate()` before the first request; the context manager
 does not exchange the secret automatically. The same exchange refreshes a token
 after a 401/403 response.
@@ -1521,7 +1596,10 @@ line = await ctx.turns.run_oneshot(prompt, label="translate")
 A key is `<app>-<id>`, where *id* is 1 to 400 of `A-Z a-z 0-9 . _ -`; any other key
 raises `ValueError` before anything runs. You choose neither the identity nor the
 approval: every tool `run` asks for is decided by the host's tool gate with your
-app's name, so the operator's profile for your app applies, and `run_oneshot`
+app's name, so the operator's profile for your app applies, and a call the gate
+neither denies nor grants goes to the owner's approval prompt, as a cron job's
+does (Slack DM and dashboard, denied after the short unattended window when
+nobody answers). `run_oneshot`
 rejects every tool. The operator's `capabilities.spawn` row for your app bounds
 which agents you may run, as it does for `ctx.spawn`: when spawning is off for your
 app, or the agent (for `agent=""`, the default agent; for `run_oneshot`,
@@ -1588,6 +1666,44 @@ disabled, uninstalled or loses trust, and the owner sees the permission at the t
 prompt. An update that adds it keeps running without it until the owner approves it on
 the app's page.
 
+### App token (`ctx.app_token()`)
+
+`await ctx.app_token()` returns an app token for your app, the same token
+`POST /api/apps/<name>/token` issues, so the Gateway confines it to your
+`permissions.api`. Your hooks run in the Gateway process, and the Gateway keeps your
+app secret where no sandbox reads it, so this call is the one way your hooks
+authenticate to the Gateway REST API. The token lasts an hour. Pass the method as the
+Python client's `on_auth_expired`, and the client renews the token after a 401 or 403:
+
+```python
+from kirocrew_client import KiroCrewClient
+
+async def on_startup(ctx):
+    origin = ctx.gateway_origin()
+    if not origin:
+        ctx.health.mark_degraded("the gateway gives no loopback origin to call")
+        return
+    client = KiroCrewClient(
+        base_url=origin,
+        app_name=ctx.name,
+        token=await ctx.app_token(),
+        on_auth_expired=ctx.app_token,
+    )
+```
+
+`ctx.gateway_origin()` returns the origin a spawned backend gets in
+`KIROCREW_GATEWAY_ORIGIN`, read from the port the Gateway holds. It returns `""` when
+the Gateway is bound to one specific interface, because every mutating call from this
+host is then refused. Without `base_url`, or with `base_url=""`, the client uses
+`KIROCREW_PORT` or port 5476, which can be another Gateway. So pass a non-empty origin,
+and build no client when there is none.
+
+`ctx.app_token()` returns `""` once the owner has disabled your app, so a background task that
+outlives a disable gets nothing. Every call is audited as `app_token_exchange` with
+source `app_context`. Do not read an `.app_secret` file in your app's folder: an older
+version left it there, the Gateway never accepts it, and the first load of your hooks
+removes it. Both methods need `ctx.sdk_level >= 5`.
+
 ### App Kit seam level (`ctx.sdk_level`)
 
 An `int`, the App Kit seam level this host provides. Level 1 means the owner gate,
@@ -1602,7 +1718,9 @@ adds the manifest's `credentialMasks` (see
 [manifest-reference.md](manifest-reference.md#credential-masks)), and level 4 adds the
 `agentTools` keys `namespace`, `timeoutSeconds` and `result` and an app's own bell
 notes (`/api/notifications/own` and the dashboard's `useAppNotifications()`, see
-[Backend Environment Variables](#backend-environment-variables)); each level
+[Backend Environment Variables](#backend-environment-variables)), level 5 adds
+[`ctx.app_token()` and `ctx.gateway_origin()`](#app-token-ctxapp_token), and level 6
+adds the dashboard's [issue list](#issue-list) (`useIssues`, `IssueList`, `IssueCard`); each level
 includes every level below it. Read it
 with `getattr(ctx, "sdk_level", 0)`. When it is lower than your app needs, call
 `ctx.health.mark_degraded(...)` with the consequence and keep serving what you can.
@@ -1832,6 +1950,11 @@ With `app_name` set and no `token` or `on_auth_expired`, the client takes the
 app secret from `KIROCREW_PROXY_SECRET` when `KIROCREW_APP_NAME` is that app (a
 backend the Gateway started). An older Gateway kept it at
 `$KIROCREW_HOME/apps/{name}/.app_secret`, which the client reads only as a fallback.
+In an app's hooks, which run in the Gateway process, pass `base_url=ctx.gateway_origin()`,
+`token=await ctx.app_token()` and `on_auth_expired=ctx.app_token`: the client calls the
+last one after a 401 or 403,
+which is how an expired token is renewed. When `ctx.gateway_origin()` returns `""`,
+build no client, because an empty `base_url` falls back to `KIROCREW_PORT` or 5476.
 
 For a remote Gateway, pass `token=...` or call `await client.authenticate()`
 after entering the context. Local loopback requests need no token. Setting
@@ -2348,6 +2471,13 @@ Security and lifecycle:
   again: the old `.app_secret` file is never accepted, the next backend start stores a NEW
   secret and passes it here, and a self-managed app gets one in the response of its next
   registration. A backend left running across the upgrade has no secret until it restarts.
+- A backend that runs in the gateway process (`backend.hooks`, no `entryPoint`) gets no
+  secret and needs none: [`ctx.app_token()`](#app-token-ctxapp_token) returns its app
+  token and `ctx.gateway_origin()` the origin to call. The first load of its hooks after the upgrade stores a new secret and removes
+  the old file, as a spawn does.
+- An app's agent MCP servers (the stdio `mcpServers` its agents declare, which kiro-cli
+  starts in the agent sandbox) get neither a secret nor an app token, so they cannot
+  call the app's own routes.
 - If the app has no secret, the gateway injects neither the secret nor anything derived from
   it (including the proof); a secret-less backend is otherwise unchanged.
 - `KIROCREW_GATEWAY_ORIGIN` is fail-closed: it is present only when the gateway has real

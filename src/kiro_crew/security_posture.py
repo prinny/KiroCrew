@@ -330,6 +330,7 @@ NON_EGRESS_REDACTION_MODULES: frozenset[str] = frozenset(
         "subagent_parts/agent_policy.py",
         "subagent_parts/continuation_surface.py",
         "subagent_parts/monitor_surface.py",
+        "subagent_parts/spawn_allowlists.py",
         "subagent_parts/terminal_surface.py",
         # Internal partitions behind the single registered
         # ``apps/builtins/aws_control/backend/backup.py`` boundary, which keeps every
@@ -992,6 +993,7 @@ NON_EGRESS_REDACTION_MODULES: frozenset[str] = frozenset(
         "mcp_tools/app_tools.py",
         "mcp_tools/artifacts.py",
         "mcp_tools/control.py",
+        "mcp_tools/control_parts/mcp_wait.py",
         "mcp_tools/control_parts/monitor.py",
         "mcp_tools/knowledge.py",
         "mcp_tools/messaging.py",

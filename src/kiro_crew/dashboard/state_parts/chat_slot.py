@@ -83,8 +83,6 @@ class _ChatSlot:
         "_crew_log_pending_channel",
         "_reasoning_effort",
         "_effort_pick_gen",
-        "turn_timeout_secs",
-        "_turn_timeout_hydrated",
         "mode",
         "workspace",
         "memory_store",
@@ -99,10 +97,12 @@ class _ChatSlot:
         "_task",
         "_turn_admission_reserved",
         "_turn_generation",
+        "_turn_lineage",
         "_turns_started",
         "_unstarted_generation",
         "_handoff_generation",
         "_handoff_mark",
+        "_unsent_resends",
         "_wake_starting_task",
         "_chunk_seq",
         "event",
@@ -161,6 +161,7 @@ class _ChatSlot:
         "_mcp_report_session_id",
         "_mcp_banner_shown",
         "_hidden_scratch_notice_shown",
+        "_telemetry_notice_shown",
         "_on_message",
         "_on_row",
         "_on_card_event",
@@ -198,6 +199,7 @@ class _ChatSlot:
         "_slack_linked",
         "_slack_channel",
         "_slack_thread_ts",
+        "_pending_thread_parent",
         "channel_origin",
         "_channel_runtime_origin",
         "folder_id",
@@ -328,6 +330,7 @@ class _ChatSlot:
         "remote_slot",
         "_turn_in_flight_generation",
         "_turn_in_flight_prompt",
+        "_restored_turn_marker",
         "_active_turn_session_key",
         "_responsive",
         "_side",
@@ -380,6 +383,9 @@ class _ChatSlot:
         "_row_redacted_memo",
         "_row_links_memo",
         "_slot_links_memo",
+        # A per-slot record kept outside the slot (the code-channel sender record)
+        # holds it weakly, so a closed slot is freed with everything it carries.
+        "__weakref__",
     )
 
     # Initialised by state_parts/source_links.py.
@@ -439,8 +445,6 @@ class _ChatSlot:
     served_model: str
     _effort_pick_gen: int
     _reasoning_effort: str
-    turn_timeout_secs: int | None
-    _turn_timeout_hydrated: bool
     memory_store: str
     _memory_assignment_from_history: bool
     _binding: TranscriptBinding
@@ -475,6 +479,9 @@ class _ChatSlot:
     # Whether this chat already showed the hidden-scratch-folder start notice in
     # this gateway run; in memory only, so a restart shows it once more.
     _hidden_scratch_notice_shown: bool
+    # A mark of the last KAS telemetry notice this chat showed, "" for none; saved
+    # on the metadata line, so a restart does not show the same notice again.
+    _telemetry_notice_shown: str
     _pending_reset_history_key: str | None
     _pending_reset_clears_cwd: bool
     _pending_discard_conversation_key: str | None
@@ -489,6 +496,10 @@ class _ChatSlot:
     _slack_linked: bool
     _slack_channel: str
     _slack_thread_ts: str
+    #: ``(channel, thread_ts, parent text)`` of the Slack thread this new session
+    #: joined (``chat_slack._seed_thread_parent``), handed to each prompt built
+    #: until the session holds a reply, then dropped.
+    _pending_thread_parent: tuple[str, str, str] | None
     _model_pick_gen: int
     _model_runtime_pick_gen: int | None
     _pending_memory_mode: str | None
@@ -506,6 +517,9 @@ class _ChatSlot:
     # Initialised by state_parts/slot_turns.py.
     _turn_in_flight_generation: int
     _turn_in_flight_prompt: dict[str, Any] | None
+    # What a restore found in a marker that outlived its process, kept after the
+    # marker itself is cleared (``slot_persistence.turn_marker``); None otherwise.
+    _restored_turn_marker: dict[str, Any] | None
     _buffers: SlotBufferCoordinator
     _queue_repository: SlotQueueRepository
     _closing: int
@@ -518,10 +532,14 @@ class _ChatSlot:
     _task: asyncio.Task[Any] | None
     _turn_admission_reserved: bool
     _turn_generation: int
+    # ``(generation, first generation)`` of a dispatch that retried the turn
+    # before it (``queue_drain``); read through :meth:`_turn_lineage_generation`.
+    _turn_lineage: tuple[int, int]
     _turns_started: int
     _unstarted_generation: int
     _handoff_generation: int
     _handoff_mark: asyncio.Future[None] | None
+    _unsent_resends: tuple[dict[str, Any], str, dict[str, Any]] | None
     _wake_starting_task: asyncio.Task[Any] | None
     _chunk_seq: int
     event: asyncio.Event
@@ -827,6 +845,25 @@ class _ChatSlot:
         self._binding.autocompact_set = True
 
     @property
+    def turn_timeout_secs(self) -> int | None:
+        """The session's own turn time limit, held in the binding aliases share."""
+        return self._binding.turn_timeout_secs
+
+    @turn_timeout_secs.setter
+    def turn_timeout_secs(self, value: int | None) -> None:
+        self._binding.turn_timeout_secs = value
+        self._binding.turn_timeout_hydrated = True
+
+    @property
+    def _turn_timeout_hydrated(self) -> bool:
+        """False until the shared limit is read from the transcript or set."""
+        return self._binding.turn_timeout_hydrated
+
+    @_turn_timeout_hydrated.setter
+    def _turn_timeout_hydrated(self, value: bool) -> None:
+        self._binding.turn_timeout_hydrated = value
+
+    @property
     def reasoning_effort(self) -> str:
         """The slot's reasoning effort: "" = provider default, else a level."""
         return self._reasoning_effort
@@ -987,6 +1024,12 @@ class _ChatSlot:
         if value is not None and value is not self._task:
             self._turn_generation += 1
         self._task = value
+
+    def _turn_lineage_generation(self) -> int:
+        """The generation that started the turn of the latest dispatch: that
+        dispatch's own, unless it was the previous turn's own retry."""
+        generation, first = self._turn_lineage
+        return first if generation == self._turn_generation else self._turn_generation
 
     @property
     def turn_running(self) -> bool:
