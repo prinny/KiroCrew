@@ -127,9 +127,7 @@ class _McpReport:
         return "MCP servers not ready: " + ", ".join(bad)
 
     def declared_not_ready(self) -> tuple[str, ...]:
-        return tuple(
-            name for name in self._declared if self._status.get(name) != "ready"
-        )
+        return tuple(name for name in self._declared if self._status.get(name) != "ready")
 
     def declared_never_reported(self) -> tuple[str, ...]:
         return tuple(name for name in self._declared if name not in self._status)
@@ -481,9 +479,7 @@ class MetaApiProvider(LLMProvider):
                 self._usage_seen = True
                 self._context_used = int(usage.get("totalTokens") or 0)
                 model = static_model(self._served_model)
-                self._context_window = (
-                    model.context_window if model else self._context_window
-                )
+                self._context_window = model.context_window if model else self._context_window
         translator = self._translator
         queue = self._event_queue
         if translator is None or queue is None:
@@ -491,9 +487,7 @@ class MetaApiProvider(LLMProvider):
             # answer an approval request with a refusal-by-default error.
             if "id" in frame and isinstance(method, str) and "requestApproval" in method:
                 if self._client is not None:
-                    await self._client.respond(
-                        frame["id"], {"decision": DECISION_DECLINE}
-                    )
+                    await self._client.respond(frame["id"], {"decision": DECISION_DECLINE})
             return
         for event in translator.feed(frame):
             queue.put_nowait(event)
@@ -654,9 +648,7 @@ class MetaApiProvider(LLMProvider):
         always: bool = False,
         deadline: Any = None,
     ) -> bool:
-        if deadline is not None and deadline.ended(
-            wall=time.time(), mono=time.monotonic()
-        ):
+        if deadline is not None and deadline.ended(wall=time.time(), mono=time.monotonic()):
             raise GrantEnded("the approval grant ended before it was answered")
         translator = self._translator
         client = self._client
@@ -699,9 +691,7 @@ class MetaApiProvider(LLMProvider):
         if self._client is None or not self._thread_id:
             return
         self._compaction_done = asyncio.Event()
-        await self._client.request(
-            "thread/compact/start", {"threadId": self._thread_id}
-        )
+        await self._client.request("thread/compact/start", {"threadId": self._thread_id})
 
     async def wait_for_compaction(self, timeout: float = 120.0) -> dict:
         if self._compaction_done is None:
@@ -735,9 +725,7 @@ class MetaApiProvider(LLMProvider):
         catalogue = getattr(self, "_catalogue", None) or merge_catalogue(None)
         return [model.picker_row() for model in catalogue]
 
-    async def maybe_refresh_available_models(
-        self, catalog_ids: list[str]
-    ) -> list[dict[str, str]]:
+    async def maybe_refresh_available_models(self, catalog_ids: list[str]) -> list[dict[str, str]]:
         return self.available_models()
 
     def get_valid_effort_levels(self) -> list[str]:
@@ -786,9 +774,7 @@ class MetaApiProvider(LLMProvider):
             self._journal_path().unlink(missing_ok=True)
         if self._client is not None and session_id:
             with contextlib.suppress(Exception):
-                await self._client.request(
-                    "thread/delete", {"threadId": session_id}
-                )
+                await self._client.request("thread/delete", {"threadId": session_id})
 
 
 def resolve_meta_api_key(credential_ref: str) -> tuple[str, str]:
