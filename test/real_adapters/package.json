@@ -16,6 +16,13 @@
     "undici": "8.12.2",
     "pi-acp": {
       "zod": "4.6.7"
-    }
+    },
+    "@strands-agents/cli": {
+      "smol-toml": "1.9.0"
+    },
+    "@deepseek-ai/dsh-mcp-client": {
+      "@modelcontextprotocol/client": "2.3.0"
+    },
+    "fflate": "0.8.3"
   }
 }
