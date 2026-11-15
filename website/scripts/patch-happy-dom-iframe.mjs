@@ -2,9 +2,9 @@
  * Patches happy-dom's HTMLIFrameElement to NOT throw/log a DOMException when
  * iframe page loading is disabled AND handleDisabledFileLoadingAsSuccess is true.
  *
- * Root cause: happy-dom 20.x checks `handleDisabledFileLoadingAsSuccess` for
- * <script> and <link> elements but NOT for <iframe>. When disableIframePageLoading
- * is true, it unconditionally creates a DOMException, logs it to console.error,
+ * Root cause: happy-dom checks `handleDisabledFileLoadingAsSuccess` for
+ * <script> and <link> elements but NOT for <iframe>. When iframe page loading
+ * is disabled, it unconditionally creates a DOMException, logs it to console.error,
  * and dispatches an error event — which vitest's fork worker counts as an
  * unhandled error (exit code 1) despite all test assertions passing.
  *
@@ -21,14 +21,20 @@ const target = resolve(__dirname, '../node_modules/happy-dom/lib/nodes/html-ifra
 
 const original = readFileSync(target, 'utf8')
 
-const oldCode = `if (browserFrame.page.context.browser.settings.disableIframePageLoading) {
+// One entry per happy-dom guard shape. 20.x guards on the single
+// `disableIframePageLoading` condition; 21.x widened the same guard with
+// `|| !enableIframePageLoading` (iframe loading became opt-in), wrapped
+// onto its own line. The rewrite is identical in both: consult
+// `handleDisabledFileLoadingAsSuccess` before raising the error.
+const patches = [
+  {
+    oldCode: `if (browserFrame.page.context.browser.settings.disableIframePageLoading) {
             const error = new window.DOMException(\`Failed to load iframe page "\${targetURL.href}". Iframe page loading is disabled.\`, DOMExceptionNameEnum.notSupportedError);
             browserFrame.page.console.error(error);
             this.dispatchEvent(new Event('error'));
             return;
-        }`
-
-const newCode = `if (browserFrame.page.context.browser.settings.disableIframePageLoading) {
+        }`,
+    newCode: `if (browserFrame.page.context.browser.settings.disableIframePageLoading) {
             if (browserFrame.page.context.browser.settings.handleDisabledFileLoadingAsSuccess) {
                 this.dispatchEvent(new Event('load'));
                 return;
@@ -37,9 +43,33 @@ const newCode = `if (browserFrame.page.context.browser.settings.disableIframePag
             browserFrame.page.console.error(error);
             this.dispatchEvent(new Event('error'));
             return;
-        }`
+        }`,
+  },
+  {
+    oldCode: `if (browserFrame.page.context.browser.settings.disableIframePageLoading ||
+            !browserFrame.page.context.browser.settings.enableIframePageLoading) {
+            const error = new window.DOMException(\`Failed to load iframe page "\${targetURL.href}". Iframe page loading is disabled.\`, DOMExceptionNameEnum.notSupportedError);
+            browserFrame.page.console.error(error);
+            this.dispatchEvent(new Event('error'));
+            return;
+        }`,
+    newCode: `if (browserFrame.page.context.browser.settings.disableIframePageLoading ||
+            !browserFrame.page.context.browser.settings.enableIframePageLoading) {
+            if (browserFrame.page.context.browser.settings.handleDisabledFileLoadingAsSuccess) {
+                this.dispatchEvent(new Event('load'));
+                return;
+            }
+            const error = new window.DOMException(\`Failed to load iframe page "\${targetURL.href}". Iframe page loading is disabled.\`, DOMExceptionNameEnum.notSupportedError);
+            browserFrame.page.console.error(error);
+            this.dispatchEvent(new Event('error'));
+            return;
+        }`,
+  },
+]
 
-if (!original.includes(oldCode)) {
+const patch = patches.find(({ oldCode }) => original.includes(oldCode))
+
+if (!patch) {
   if (original.includes('handleDisabledFileLoadingAsSuccess')) {
     console.log('patch-happy-dom-iframe: already patched, skipping.')
     process.exit(0)
@@ -54,5 +84,5 @@ if (!original.includes(oldCode)) {
   process.exit(process.env.CI ? 1 : 0)
 }
 
-writeFileSync(target, original.replace(oldCode, newCode))
+writeFileSync(target, original.replace(patch.oldCode, patch.newCode))
 console.log('patch-happy-dom-iframe: patched HTMLIFrameElement to respect handleDisabledFileLoadingAsSuccess.')
