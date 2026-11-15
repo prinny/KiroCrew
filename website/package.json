@@ -193,7 +193,7 @@
   "overrides": {
     "@aws-sdk/types": "3.973.6",
     "@humanfs/core": "0.19.1",
-    "@humanfs/node": "0.16.7",
+    "@humanfs/node": "0.16.8",
     "@inquirer/ansi": "2.0.4",
     "@inquirer/confirm": "6.0.10",
     "@inquirer/core": "11.1.7",
@@ -224,13 +224,13 @@
     "@typescript-eslint/utils": "8.58.0",
     "@typescript-eslint/visitor-keys": "8.58.0",
     "ajv": "6.14.0",
-    "baseline-browser-mapping": "2.10.13",
-    "brace-expansion": "1.1.18",
+    "baseline-browser-mapping": "2.11.0",
+    "brace-expansion": "1.1.21",
     "dompurify": "3.4.17",
     "esbuild": "0.25.12",
     "test-exclude": "8.0.0",
     "minimatch@>=10": {
-      "brace-expansion": "5.0.9"
+      "brace-expansion": "5.0.12"
     },
     "caniuse-lite": "1.0.30001782",
     "chevrotain-allstar": "0.3.1",
